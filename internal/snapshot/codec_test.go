@@ -2,12 +2,13 @@ package snapshot_test
 
 import (
 	"bytes"
-	"github.com/rbacviz/rbacviz/internal/snapshot"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/rbacviz/rbacviz/internal/snapshot"
 )
 
 func TestCanonicalRoundTripIsDeterministic(t *testing.T) {
