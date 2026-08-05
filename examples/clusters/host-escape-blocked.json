@@ -1,0 +1,38 @@
+{
+  "schemaVersion": "1.0",
+  "toolVersion": "example",
+  "metadata": {"collectedAt": "2026-08-05T12:00:00Z", "allNamespaces": true, "complete": true},
+  "apiResources": [
+    {"groupVersion": "v1", "version": "v1", "name": "pods", "kind": "Pod", "namespaced": true, "verbs": ["create"]}
+  ],
+  "identities": [{"kind": "ServiceAccount", "namespace": "sandbox", "name": "builder", "provenance": []}],
+  "roles": [
+    {
+      "ref": {"apiGroup": "rbac.authorization.k8s.io", "kind": "Role", "namespace": "sandbox", "name": "pod-creator"},
+      "labels": [],
+      "rules": [{"verbs": ["create"], "apiGroups": [""], "resources": ["pods"], "resourceNames": [], "nonResourceURLs": []}],
+      "aggregationSelectors": []
+    }
+  ],
+  "bindings": [
+    {
+      "ref": {"apiGroup": "rbac.authorization.k8s.io", "kind": "RoleBinding", "namespace": "sandbox", "name": "pod-creator"},
+      "labels": [],
+      "roleRef": {"apiGroup": "rbac.authorization.k8s.io", "kind": "Role", "namespace": "sandbox", "name": "pod-creator"},
+      "subjects": [{"kind": "ServiceAccount", "namespace": "sandbox", "name": "builder"}]
+    }
+  ],
+  "serviceAccounts": [{"ref": {"kind": "ServiceAccount", "namespace": "sandbox", "name": "builder"}, "labels": []}],
+  "workloads": [],
+  "assets": [{"ref": {"kind": "Node", "name": "example-node"}, "labels": [], "assetType": "Node"}],
+  "securityControls": [
+    {
+      "ref": {"kind": "Namespace", "name": "sandbox"},
+      "controlType": "PodSecurityAdmission",
+      "mode": "restricted",
+      "details": [{"key": "enforce", "value": "restricted"}],
+      "semanticsUnknown": false
+    }
+  ],
+  "collectionWarnings": []
+}

@@ -1,0 +1,36 @@
+{
+  "schemaVersion": "1.0",
+  "toolVersion": "example",
+  "metadata": {
+    "collectedAt": "2026-08-05T12:00:00Z",
+    "allNamespaces": true,
+    "complete": true
+  },
+  "apiResources": [
+    {
+      "groupVersion": "v1",
+      "version": "v1",
+      "name": "serviceaccounts",
+      "kind": "ServiceAccount",
+      "namespaced": true,
+      "verbs": ["create", "get", "list"]
+    }
+  ],
+  "identities": [],
+  "roles": [],
+  "bindings": [],
+  "serviceAccounts": [
+    {
+      "ref": {
+        "kind": "ServiceAccount",
+        "namespace": "production",
+        "name": "admin"
+      },
+      "labels": []
+    }
+  ],
+  "workloads": [],
+  "assets": [],
+  "securityControls": [],
+  "collectionWarnings": []
+}

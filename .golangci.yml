@@ -1,0 +1,19 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: standard
+  enable:
+    - errorlint
+    - gocritic
+    - gosec
+    - misspell
+    - revive
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+

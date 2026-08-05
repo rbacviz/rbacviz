@@ -1,0 +1,34 @@
+{
+  "schemaVersion": "1.0",
+  "toolVersion": "example",
+  "metadata": {
+    "collectedAt": "2026-08-05T12:00:00Z",
+    "allNamespaces": true,
+    "complete": true
+  },
+  "apiResources": [
+    {"groupVersion": "v1", "version": "v1", "name": "serviceaccounts", "kind": "ServiceAccount", "namespaced": true, "verbs": ["create"]}
+  ],
+  "identities": [{"kind": "User", "name": "alice", "provenance": []}],
+  "roles": [
+    {
+      "ref": {"apiGroup": "rbac.authorization.k8s.io", "kind": "Role", "namespace": "production", "name": "token-minter"},
+      "labels": [],
+      "rules": [{"verbs": ["create"], "apiGroups": [""], "resources": ["serviceaccounts/token"], "resourceNames": ["admin"], "nonResourceURLs": []}],
+      "aggregationSelectors": []
+    }
+  ],
+  "bindings": [
+    {
+      "ref": {"apiGroup": "rbac.authorization.k8s.io", "kind": "RoleBinding", "namespace": "production", "name": "token-minter"},
+      "labels": [],
+      "roleRef": {"apiGroup": "rbac.authorization.k8s.io", "kind": "Role", "namespace": "production", "name": "token-minter"},
+      "subjects": [{"kind": "User", "name": "alice"}]
+    }
+  ],
+  "serviceAccounts": [{"ref": {"kind": "ServiceAccount", "namespace": "production", "name": "admin"}, "labels": []}],
+  "workloads": [],
+  "assets": [],
+  "securityControls": [],
+  "collectionWarnings": []
+}

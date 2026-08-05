@@ -1,0 +1,79 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Semantic version to build without publishing
+        required: true
+        default: v0.1.0-dev
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: Verify and package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.12'
+          cache: true
+      - uses: golangci/golangci-lint-action@v9.3.0
+        with:
+          version: v2.12.2
+      - name: Select immutable build metadata
+        id: metadata
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME}"
+          if [[ "${GITHUB_REF_TYPE}" != "tag" ]]; then
+            version="${{ inputs.version }}"
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "epoch=$(git log -1 --format=%ct)" >> "$GITHUB_OUTPUT"
+      - name: Test and static analysis
+        run: |
+          test -z "$(gofmt -l .)"
+          sh -n install.sh hack/test-install.sh
+          ./hack/test-install.sh
+          go vet ./...
+          go test -race ./...
+          go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
+      - name: Verify generated screenshots
+        run: |
+          go run ./hack/render-screenshots
+          git diff --exit-code -- docs/assets
+      - name: Prove byte reproducibility
+        run: ./hack/verify-reproducible.sh "${{ steps.metadata.outputs.version }}" "${{ steps.metadata.outputs.commit }}" "${{ steps.metadata.outputs.epoch }}"
+      - name: Build release
+        run: go run ./hack/release --version "${{ steps.metadata.outputs.version }}" --commit "${{ steps.metadata.outputs.commit }}" --source-date-epoch "${{ steps.metadata.outputs.epoch }}" --output dist/release
+      - name: Verify checksums and metadata
+        run: |
+          cd dist/release
+          sha256sum -c checksums.txt
+          test "$(find . -maxdepth 1 -type f | wc -l)" -eq 8
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: 'dist/release/*'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rbacviz-${{ steps.metadata.outputs.version }}
+          path: dist/release/*
+          if-no-files-found: error
+      - name: Publish GitHub release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${GITHUB_REF_NAME}" dist/release/* --verify-tag --generate-notes
