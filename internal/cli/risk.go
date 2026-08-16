@@ -87,9 +87,9 @@ func writeRisk(writer io.Writer, output string, result risk.Result, top int) err
 		}
 		return nil
 	}
-	if _, err := fmt.Fprintf(writer, "risk model: %s\ncomplete: %t\ntruncated: %t\ncluster risk: %d %s\npaths: %d identities: %d namespaces: %d warnings: %d\n",
+	if _, err := fmt.Fprintf(writer, "risk model: %s\ncomplete: %t\ntruncated: %t\ncluster risk: %d %s\nnotice: cluster risk is a posture index, not breach probability\npaths: %d root-cause-families: %d identities: %d namespaces: %d warnings: %d\n",
 		result.ModelVersion, result.Complete, result.Truncated, result.Cluster.Score, result.Cluster.Severity,
-		len(result.PathScores), len(result.Identities), len(result.Namespaces), len(result.Warnings)); err != nil {
+		len(result.PathScores), len(result.RiskFamilies), len(result.Identities), len(result.Namespaces), len(result.Warnings)); err != nil {
 		return riskOutputError(err)
 	}
 	if err := writeRiskAggregates(writer, "identity", result.Identities, top); err != nil {
@@ -98,7 +98,16 @@ func writeRisk(writer io.Writer, output string, result risk.Result, top int) err
 	if err := writeRiskAggregates(writer, "namespace", result.Namespaces, top); err != nil {
 		return err
 	}
-	limit := smallerCLI(top, len(result.PathScores))
+	limit := smallerCLI(top, len(result.RiskFamilies))
+	for index := 0; index < limit; index++ {
+		family := result.RiskFamilies[index]
+		if _, err := fmt.Fprintf(writer, "risk family %d: %d %s %s\n  family id: %s\n  source: %s\n  paths: %d semantic-units: %d confidence=%s blocked=%t\n",
+			index+1, family.Score, family.Severity, family.RootCause, family.ID, family.Source.String(),
+			family.PathCount, family.DistinctRiskUnits, family.Confidence, family.Blocked); err != nil {
+			return riskOutputError(err)
+		}
+	}
+	limit = smallerCLI(top, len(result.PathScores))
 	for index := 0; index < limit; index++ {
 		value := result.PathScores[index]
 		if _, err := fmt.Fprintf(writer, "path risk %d: %d %s %s [%s]\n  risk id: %s\n  path id: %s\n  source: %s\n  target: %s namespace=%s confidence=%s blocked=%t\n  scope factor: %d bps mitigation: %d bps\n",
@@ -130,9 +139,10 @@ func writeRiskAggregates(writer io.Writer, label string, values []risk.Aggregate
 	limit := smallerCLI(top, len(values))
 	for index := 0; index < limit; index++ {
 		value := values[index]
-		if _, err := fmt.Fprintf(writer, "%s risk %d: %s score=%d severity=%s paths=%d risk-units=%d primary=%d additional=%d\n",
+		if _, err := fmt.Fprintf(writer, "%s risk %d: %s score=%d severity=%s paths=%d risk-units=%d root-families=%d contributors=%d primary=%d additional=%d\n",
 			label, index+1, value.Key, value.Score, value.Severity, value.PathCount,
-			value.DistinctRiskUnits, value.PrimaryScore, value.AdditionalContribution); err != nil {
+			value.DistinctRiskUnits, value.RiskFamilyCount, value.ContributingFamilies,
+			value.PrimaryScore, value.AdditionalContribution); err != nil {
 			return riskOutputError(err)
 		}
 	}

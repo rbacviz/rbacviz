@@ -6,7 +6,7 @@
 RBAC permissions, identity attack paths, observed mitigations, and the smallest
 practical changes that can break dangerous paths.
 
-The repository has completed **Milestone 11: release hardening**. It now
+The repository implements the complete **v0.2.0 source milestone set**. It
 contains a Go 1.25 CLI that can collect live cluster metadata into a canonical,
 credential-free snapshot and deterministically explain effective Kubernetes
 RBAC permissions, inspect their typed graph, search bounded top-K paths, and
@@ -25,9 +25,9 @@ filtered, and ranked without applying them to a cluster.
 > What is the most dangerous identity path in this cluster, why does it exist,
 > how certain are we that it is exploitable, and what smallest change breaks it?
 
-## MVP boundary
+## Product boundary
 
-The first usable release will:
+The current release:
 
 - collect RBAC objects, workloads, asset metadata, and observable admission
   controls without reading Secret values;
@@ -39,7 +39,7 @@ The first usable release will:
 - support a terminal UI, JSON/SARIF output, snapshot diff, offline simulation,
   and advisory remediation.
 
-The MVP will not execute attacks, modify clusters, fully interpret arbitrary
+The project does not execute attacks, modify clusters, fully interpret arbitrary
 admission webhooks, or claim equivalence with the API server's complete
 authorization decision.
 
@@ -64,7 +64,7 @@ atomically. To install a specific release or choose another destination:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/rbacviz/rbacviz/main/install.sh | \
-  sudo RBACVIZ_VERSION=v0.1.0 RBACVIZ_INSTALL_DIR=/usr/local/bin sh
+  sudo RBACVIZ_VERSION=v0.2.0 RBACVIZ_INSTALL_DIR=/usr/local/bin sh
 ```
 
 Go developers can alternatively install directly from source:
@@ -82,6 +82,7 @@ go install github.com/rbacviz/rbacviz/cmd/rbacviz@latest
 - [Attack paths, risk, and remediation](docs/architecture/security-analysis.md)
 - [Threat model](docs/security/threat-model.md)
 - [Release and artifact verification](docs/release.md)
+- [Changelog](CHANGELOG.md)
 - [Measured benchmark baselines](docs/benchmarks.md)
 - [CLI and TUI map](docs/architecture/interfaces.md)
 - [Roadmap and technical risks](docs/architecture/roadmap.md)
@@ -112,6 +113,9 @@ make build
 ./bin/rbacviz diff before.json after.json
 ./bin/rbacviz simulate -s cluster.json -f proposed-role.yaml
 ./bin/rbacviz remediate --snapshot cluster.json
+./bin/rbacviz report --snapshot cluster.json --format md --file rbacviz-report.md
+./bin/rbacviz report --snapshot cluster.json --format sarif --file rbacviz-report.sarif
+./bin/rbacviz report --snapshot cluster.json --baseline examples/baseline-development.yaml
 ```
 
 For a zero-cluster walkthrough, use the synthetic snapshots in
@@ -265,7 +269,8 @@ credential material remains an explicit prerequisite rather than a claim.
 
 ### Transparent risk
 
-Risk model `1.0.0` scores each bounded attack path with six normalized factors:
+Risk model `2.0.0` preserves the calibrated path calculation and scores each
+bounded attack path with six normalized factors:
 impact (30%), exploitability (22%), blast radius (18%), exposure (10%), path
 quality (10%), and confidence (10%). The result includes every raw value,
 integer weight, weighted contribution, scope factor, mitigation deduction, and
@@ -294,11 +299,15 @@ deduction while retaining the underlying impact factor. Uninterpreted potential
 controls apply a conservative 10% deduction each, capped at 30%, and remain
 visible as uncertainty rather than proof of blocking.
 
-Identity, namespace, and cluster scores are not sums. Parallel grants for the
-same source, technique, and target collapse into one semantic risk unit. The
-highest unit is primary; each additional distinct unit contributes 15% of its
-score against only the remaining headroom. All original path IDs remain in the
-result, so aggregation cannot erase redundant-grant evidence.
+Identity, namespace, and cluster scores are not sums. Risk model `2.0.0`
+groups derivative paths by the exact binding/subject root cause, so a wildcard
+grant remains one risk family even when it produces many techniques and
+targets. The highest family is primary; at most five semantically distinct
+families add ranked `5/3/2/1/1%` contributions, capped at `+12`. Redundant
+families with the same complete semantic outcome set remain visible but do not
+contribute twice. JSON retains every family, path ID, selected contributor,
+weight, and exact integer contribution. The result is a posture index, not
+breach probability.
 
 ### Semantic diff and offline simulation
 
@@ -390,6 +399,50 @@ The engine is advisory-only: it has no Kubernetes client, patch, apply, or
 write interface. The operator remains responsible for reviewing and applying
 any change outside `rbacviz`.
 
+### Root-cause security reports
+
+The first v0.2 report model correlates raw findings, attack paths, risk scores,
+and virtually evaluated remediation candidates into a prioritized list of
+root causes. Correlated signals keep all original IDs and evidence, but one
+binding/subject grant is not presented as dozens of independent problems.
+
+```bash
+# Portable report for review by platform and development teams.
+rbacviz report \
+  --snapshot cluster.json \
+  --format md \
+  --file rbacviz-report.md
+
+# Versioned machine-readable report contract.
+rbacviz report --snapshot cluster.json --format json --file rbacviz-report.json
+
+# Root-cause SARIF 2.1.0 for CI and code-scanning consumers.
+rbacviz report --snapshot cluster.json --format sarif --file rbacviz-report.sarif
+
+# Namespace-scoped report with explicit analysis bounds.
+rbacviz report --snapshot cluster.json --namespace production \
+  --max-issues 100 --max-candidates 50 \
+  --max-paths 10000 --max-expanded 100000
+```
+
+The report separates severity, confidence, actionability, priority, and the
+posture-oriented Risk Index. `ACTIONABLE`, `CONDITIONAL`, `BLOCKED`, and
+`OBSERVATION` are not probabilities. Each listed fix comes from the existing
+offline remediation engine and includes measured before/after risk, removed or
+blocked paths, permission loss, affected identities, and verification commands.
+If no measured candidate exists, the report says so rather than inventing an
+unsafe patch. Markdown, JSON, and SARIF are generated from the same versioned
+model; none contains ANSI terminal decoration. Each detailed root cause also
+contains an evidence-backed Access Chain: workload/identity → binding → role →
+effective permissions, with RoleBinding and ClusterRoleBinding scope kept
+distinct.
+
+SARIF emits one result per root cause, stable issue/root-cause fingerprints,
+Kubernetes object URIs, and analysis warnings as tool notifications. A fully
+accepted baseline entry remains present with an external accepted suppression.
+A rule-only exception that accepts only part of a grouped issue is retained as
+audit metadata and never suppresses the complete SARIF result.
+
 ### Interactive terminal UI
 
 Milestone 8 adds a full-screen Bubble Tea interface backed by the same snapshot,
@@ -415,12 +468,17 @@ same engine as `rbacviz remediate`.
 The central keymap also provides `↑/↓`, `Enter`, `Esc`, `Tab`/`Shift+Tab`, `e`,
 `p`, `r`, `?`, and `q`.
 
-The layout is one panel below 80 columns, list plus inspector from 80–119, and
-list plus inspector plus evidence at 120 columns and above. Long inventories
-render only the visible window. Initial collection and analysis are staged and
-cancellable; detailed attack-path evidence is materialized only when the Attack
-Paths view is requested and can be cancelled independently. Partial collection
-and bounded-analysis warnings remain persistently visible.
+The responsive layout exposes List, Inspector, Access Chain, and Evidence. Below
+80 columns one panel is shown at a time; 80–119 shows the list plus the selected
+Inspector/Access detail; 120–159 shows List + Inspector + Access Chain; and 160+
+shows all four columns. Access Chain visualizes workload/identity → binding →
+role → effective permissions and adds priority, status, confidence, root cause,
+impact, recommendation, and a verification command from one shared explanation
+model. Long inventories render only the visible window. Initial collection and
+analysis are staged and cancellable; detailed attack-path evidence is
+materialized only when the Attack Paths view is requested and can be cancelled
+independently. Partial collection and bounded-analysis warnings remain
+persistently visible.
 
 ![rbacviz findings inspector rendered from the real TUI](docs/assets/tui-findings.svg)
 
@@ -482,10 +540,10 @@ Supported environment variables are `RBACVIZ_CONTEXT`,
 | 0 | success |
 | 1 | operational or configuration validation failure |
 | 2 | invalid command, arguments, or flags |
-| 3 | partial collection rejected by strict mode (reserved for Milestone 2) |
-| 4 | configured security gate reached (reserved for analysis milestones) |
+| 3 | partial collection rejected by strict completeness mode |
+| 4 | configured security gate reached |
 
-## Planned implementation sequence
+## Implemented milestone sequence
 
 Milestones are deliberately ordered so that every layer can be tested through
 stable domain contracts before the interactive UI depends on it:
@@ -500,6 +558,11 @@ stable domain contracts before the interactive UI depends on it:
 8. interactive TUI (completed);
 9. semantic diff and offline simulation (completed);
 10. remediation candidates and impact ranking (completed);
-11. release hardening (completed).
+11. release hardening (completed);
+12. v0.2 root-cause Markdown/JSON reports (completed);
+13. shared access explanations and responsive Access Chain panel (completed);
+14. root-cause-family Risk Index `2.0.0` (completed);
+15. reviewed baselines and suppressions (completed);
+16. root-cause SARIF 2.1.0 mapping (completed).
 
 The detailed plan is in [roadmap.md](docs/architecture/roadmap.md).

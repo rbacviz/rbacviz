@@ -8,6 +8,7 @@ import (
 
 	"github.com/rbacviz/rbacviz/internal/app"
 	"github.com/rbacviz/rbacviz/internal/attackpath"
+	"github.com/rbacviz/rbacviz/internal/explain"
 	graphmodel "github.com/rbacviz/rbacviz/internal/graph"
 	"github.com/rbacviz/rbacviz/internal/remediation"
 	"github.com/rbacviz/rbacviz/internal/risk"
@@ -64,7 +65,24 @@ func loadPathsCmd(ctx context.Context, dataset Dataset) tea.Cmd {
 		if err != nil {
 			return pathLoadErrorMsg{err: err}
 		}
-		return pathsLoadedMsg{value: value}
+		explanations, err := explain.Build(ctx, dataset.Snapshot, dataset.Nodes, dataset.Findings, value, dataset.Risk)
+		if err != nil {
+			return pathLoadErrorMsg{err: err}
+		}
+		return pathsLoadedMsg{value: value, explanations: explanations}
+	}
+}
+
+func loadExplanationsCmd(ctx context.Context, dataset Dataset) tea.Cmd {
+	return func() tea.Msg {
+		if err := ctx.Err(); err != nil {
+			return loadErrorMsg{err: err}
+		}
+		value, err := explain.Build(ctx, dataset.Snapshot, dataset.Nodes, dataset.Findings, dataset.Paths, dataset.Risk)
+		if err != nil {
+			return loadErrorMsg{err: err}
+		}
+		return explanationsLoadedMsg{value: value}
 	}
 }
 

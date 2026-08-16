@@ -9,8 +9,10 @@ Global flags are parsed once and passed as immutable options:
 ```text
 rbacviz
 ├── version
-├── scan
-├── tui
+├── config
+├── snapshot
+│   ├── save
+│   └── inspect <file>
 ├── permissions <identity>
 ├── who-can <verb> <resource>
 ├── why-can <identity> <verb> <resource>
@@ -22,25 +24,20 @@ rbacviz
 ├── explain <finding-id>
 ├── attack-path
 ├── risk
-├── snapshot
-│   ├── save
-│   └── inspect <file>
+├── tui
 ├── diff <before> <after>
 ├── simulate --snapshot <file> --file <path>
 ├── remediate
-├── export
-│   ├── json
-│   ├── sarif
-│   ├── markdown
-│   ├── mermaid
-│   └── graphviz
-└── scanner-rbac
+└── report --format <md|json|sarif> --file <path> [--baseline <path>]
 ```
 
-`scanner-rbac` prints a recommended read-only manifest and explanation; it
-never applies it. Commands requiring analysis accept either a live source or
-`--snapshot`, but not conflicting sources. `--output` selects human, JSON,
-SARIF, or Markdown where supported.
+Commands requiring analysis accept either a live source or `--snapshot`, but
+not conflicting sources. `--output` selects human/JSON and SARIF where
+supported by findings. `report` deliberately uses `--format md|json|sarif`
+because all three outputs come from its separate versioned document model;
+`--file` selects the destination and stdout remains the default. `report` and
+`tui` accept a strict reviewed baseline; accepted signals stay visible while
+only active risk families contribute to the posture index.
 
 Exit-code proposal:
 

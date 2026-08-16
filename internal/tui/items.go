@@ -7,6 +7,7 @@ import (
 
 	graphmodel "github.com/rbacviz/rbacviz/internal/graph"
 	"github.com/rbacviz/rbacviz/internal/permission"
+	"github.com/rbacviz/rbacviz/internal/risk"
 	"github.com/rbacviz/rbacviz/internal/snapshot"
 )
 
@@ -25,13 +26,18 @@ func buildItems(data Dataset) map[View][]item {
 }
 
 func overviewItems(data Dataset) []item {
-	cluster := data.Risk.Cluster
+	posture := activeRisk(data)
+	cluster := posture.Cluster
 	pathsComplete := data.Paths.SchemaVersion == "" || data.Paths.Complete
-	complete := data.Snapshot.Metadata.Complete && data.Findings.Complete && pathsComplete && data.Risk.Complete
+	complete := data.Snapshot.Metadata.Complete && data.Findings.Complete && pathsComplete && posture.Complete
 	return []item{
-		{ID: "overview:risk", Title: fmt.Sprintf("Cluster risk  %d/100", cluster.Score), Subtitle: string(cluster.Severity), Severity: string(cluster.Severity), Risk: cluster.Score, Detail: lines(
-			"CLUSTER RISK", fmt.Sprintf("Score: %d/100 (%s)", cluster.Score, cluster.Severity), cluster.Explanation,
-			fmt.Sprintf("Distinct risk units: %d", cluster.DistinctRiskUnits), fmt.Sprintf("Attack paths: %d", cluster.PathCount)),
+		{ID: "overview:risk", Title: fmt.Sprintf("Risk Index  %d/100", cluster.Score), Subtitle: string(cluster.Severity), Severity: string(cluster.Severity), Risk: cluster.Score, Detail: lines(
+			"CLUSTER RISK INDEX", fmt.Sprintf("Index: %d/100 (%s)", cluster.Score, cluster.Severity),
+			"Posture indicator; not breach probability.", cluster.Explanation,
+			fmt.Sprintf("Root-cause families: %d", cluster.RiskFamilyCount),
+			fmt.Sprintf("Contributing families: %d", cluster.ContributingFamilies),
+			fmt.Sprintf("Accepted exceptions: %d", len(data.Suppressions.Accepted)),
+			fmt.Sprintf("Distinct semantic units: %d", cluster.DistinctRiskUnits), fmt.Sprintf("Attack paths: %d", cluster.PathCount)),
 			Evidence: strings.Join(cluster.PathIDs, "\n")},
 		{ID: "overview:paths", Title: fmt.Sprintf("Attack paths  %d", pathSummaryCount(data)), Subtitle: pathSummarySubtitle(data), Detail: pathSummaryDetail(data)},
 		{ID: "overview:findings", Title: fmt.Sprintf("Findings  %d", len(data.Findings.Findings)), Subtitle: severityCounts(data), Detail: lines(
@@ -81,8 +87,9 @@ func identityItems(data Dataset) []item {
 			ID: identity.ID, Title: title, Subtitle: fmt.Sprintf("%s · risk %d %s", identity.Kind, riskValue.Score, riskValue.Severity),
 			Namespace: identity.Namespace, Severity: string(riskValue.Severity), Risk: riskValue.Score,
 			Search: strings.ToLower(title + " " + string(identity.Kind)),
-			Detail: lines("IDENTITY", title, fmt.Sprintf("Kind: %s", identity.Kind), fmt.Sprintf("Risk: %d/100 %s", riskValue.Score, riskValue.Severity),
-				fmt.Sprintf("Paths: %d", riskValue.Paths), fmt.Sprintf("Distinct risk units: %d", riskValue.Units), riskValue.Explanation),
+			Detail: lines("IDENTITY", title, fmt.Sprintf("Kind: %s", identity.Kind), fmt.Sprintf("Risk Index: %d/100 %s", riskValue.Score, riskValue.Severity),
+				fmt.Sprintf("Paths: %d", riskValue.Paths), fmt.Sprintf("Root-cause families: %d", riskValue.Families),
+				fmt.Sprintf("Distinct semantic units: %d", riskValue.Units), riskValue.Explanation),
 			Evidence: strings.Join(riskValue.IDs, "\n"),
 		})
 	}
@@ -103,7 +110,8 @@ func serviceAccountItems(data Dataset) []item {
 			ID: account.ID, Title: identity.String(), Namespace: account.Ref.Namespace, Risk: riskValue.Score,
 			Severity: string(riskValue.Severity), Subtitle: fmt.Sprintf("risk %d %s · automount %s", riskValue.Score, riskValue.Severity, automount),
 			Detail: lines("SERVICE ACCOUNT", identity.String(), fmt.Sprintf("Namespace: %s", account.Ref.Namespace),
-				fmt.Sprintf("Automount token: %s", automount), fmt.Sprintf("Risk: %d/100 %s", riskValue.Score, riskValue.Severity), riskValue.Explanation),
+				fmt.Sprintf("Automount token: %s", automount), fmt.Sprintf("Risk Index: %d/100 %s", riskValue.Score, riskValue.Severity),
+				fmt.Sprintf("Root-cause families: %d", riskValue.Families), riskValue.Explanation),
 			Evidence: strings.Join(riskValue.IDs, "\n"),
 		})
 	}
@@ -111,10 +119,11 @@ func serviceAccountItems(data Dataset) []item {
 }
 
 func namespaceItems(data Dataset) []item {
+	posture := activeRisk(data)
 	names := observedNamespaces(data.Snapshot)
-	risks := make(map[string]riskSummary, len(data.Risk.Namespaces))
-	for _, value := range data.Risk.Namespaces {
-		risks[value.Namespace] = riskSummary{Score: value.Score, Severity: string(value.Severity), Paths: value.PathCount, Units: value.DistinctRiskUnits, Explanation: value.Explanation, IDs: value.PathIDs}
+	risks := make(map[string]riskSummary, len(posture.Namespaces))
+	for _, value := range posture.Namespaces {
+		risks[value.Namespace] = riskSummary{Score: value.Score, Severity: string(value.Severity), Paths: value.PathCount, Units: value.DistinctRiskUnits, Families: value.RiskFamilyCount, Explanation: value.Explanation, IDs: value.PathIDs}
 	}
 	values := make([]item, 0, len(names))
 	for _, name := range names {
@@ -123,8 +132,9 @@ func namespaceItems(data Dataset) []item {
 		values = append(values, item{
 			ID: "namespace:" + name, Title: name, Namespace: name, Risk: riskValue.Score, Severity: riskValue.Severity,
 			Subtitle: fmt.Sprintf("risk %d %s · %d workloads", riskValue.Score, defaultText(riskValue.Severity, "INFO"), counts.workloads),
-			Detail: lines("NAMESPACE", name, fmt.Sprintf("Risk: %d/100 %s", riskValue.Score, defaultText(riskValue.Severity, "INFO")),
-				fmt.Sprintf("Roles: %d", counts.roles), fmt.Sprintf("Bindings: %d", counts.bindings), fmt.Sprintf("Workloads: %d", counts.workloads), fmt.Sprintf("Assets: %d", counts.assets), riskValue.Explanation),
+			Detail: lines("NAMESPACE", name, fmt.Sprintf("Risk Index: %d/100 %s", riskValue.Score, defaultText(riskValue.Severity, "INFO")),
+				fmt.Sprintf("Root-cause families: %d", riskValue.Families), fmt.Sprintf("Roles: %d", counts.roles), fmt.Sprintf("Bindings: %d", counts.bindings),
+				fmt.Sprintf("Workloads: %d", counts.workloads), fmt.Sprintf("Assets: %d", counts.assets), riskValue.Explanation),
 			Evidence: strings.Join(riskValue.IDs, "\n"),
 		})
 	}
@@ -156,9 +166,15 @@ func permissionItems(data Dataset) []item {
 		}
 		capability := node.Capability
 		title := capabilityTitle(*capability)
+		explanations := data.Explanations.Lookup(node.ID)
+		grantCount := explanationGrantCount(explanations, *capability)
+		evidence := capabilityEvidence(*capability)
+		if grantCount > 0 {
+			evidence = explanationEvidence(explanations, *capability)
+		}
 		values = append(values, item{ID: node.ID, Title: title, Namespace: capability.Namespace,
-			Subtitle: fmt.Sprintf("%s · %d independent grants", capability.Scope, len(capability.Grants)),
-			Detail:   capabilityDetail(*capability), Evidence: capabilityEvidence(*capability),
+			Subtitle: fmt.Sprintf("%s · %d independent grants", capability.Scope, grantCount),
+			Detail:   capabilityDetailWithGrantCount(*capability, grantCount), Evidence: evidence,
 			Search: strings.ToLower(title + " " + string(capability.Scope) + " " + capability.Namespace)})
 	}
 	return values
@@ -168,16 +184,25 @@ type riskSummary struct {
 	Score        int
 	Severity     string
 	Paths, Units int
+	Families     int
 	Explanation  string
 	IDs          []string
 }
 
 func identityRisk(data Dataset) map[string]riskSummary {
-	result := make(map[string]riskSummary, len(data.Risk.Identities))
-	for _, value := range data.Risk.Identities {
-		result[value.Key] = riskSummary{Score: value.Score, Severity: string(value.Severity), Paths: value.PathCount, Units: value.DistinctRiskUnits, Explanation: value.Explanation, IDs: value.PathIDs}
+	posture := activeRisk(data)
+	result := make(map[string]riskSummary, len(posture.Identities))
+	for _, value := range posture.Identities {
+		result[value.Key] = riskSummary{Score: value.Score, Severity: string(value.Severity), Paths: value.PathCount, Units: value.DistinctRiskUnits, Families: value.RiskFamilyCount, Explanation: value.Explanation, IDs: value.PathIDs}
 	}
 	return result
+}
+
+func activeRisk(data Dataset) risk.Result {
+	if data.ActiveRisk.SchemaVersion != "" {
+		return data.ActiveRisk
+	}
+	return data.Risk
 }
 
 type objectCounts struct{ roles, bindings, workloads, assets int }

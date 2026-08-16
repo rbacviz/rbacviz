@@ -3,16 +3,20 @@ package cli
 import (
 	"context"
 	"fmt"
+	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/rbacviz/rbacviz/internal/apperr"
+	"github.com/rbacviz/rbacviz/internal/baseline"
 	"github.com/rbacviz/rbacviz/internal/snapshot"
 	tuiterm "github.com/rbacviz/rbacviz/internal/tui"
 )
 
 func newTUICommand(streams IOStreams, dependencies Dependencies, state *commandState) *cobra.Command {
 	var noAltScreen bool
+	var baselinePath string
 	command := &cobra.Command{
 		Use:   "tui",
 		Short: "Explore cluster identities, findings, attack paths, and risk interactively",
@@ -21,8 +25,17 @@ func newTUICommand(streams IOStreams, dependencies Dependencies, state *commandS
 			if state.result.Config.Output != "human" {
 				return apperr.New(apperr.KindInvalidInput, "cli.tui.output", "tui requires --output human", nil)
 			}
+			var policy *baseline.Document
+			if strings.TrimSpace(baselinePath) != "" {
+				loaded, err := baseline.Load(baselinePath)
+				if err != nil {
+					return apperr.New(apperr.KindInvalidInput, "cli.tui.baseline", err.Error(), err)
+				}
+				policy = &loaded
+			}
 			model := tuiterm.NewModel(tuiterm.Options{
 				Context: command.Context(), NoColor: state.result.Config.NoColor,
+				Baseline: policy, EvaluatedAt: time.Now().UTC(),
 				Load: func(ctx context.Context) (snapshot.Snapshot, error) {
 					return loadAnalysisSnapshot(ctx, dependencies, state)
 				},
@@ -34,5 +47,6 @@ func newTUICommand(streams IOStreams, dependencies Dependencies, state *commandS
 		},
 	}
 	command.Flags().BoolVar(&noAltScreen, "no-alt-screen", false, "render inline instead of using the terminal alternate screen")
+	command.Flags().StringVar(&baselinePath, "baseline", "", "path to a reviewed YAML or JSON suppression baseline")
 	return command
 }

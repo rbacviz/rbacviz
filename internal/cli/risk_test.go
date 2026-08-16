@@ -25,15 +25,18 @@ func TestRiskOfflineHumanAndJSONContracts(t *testing.T) {
 	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
 		t.Fatalf("invalid JSON: %v\n%s", err, stdout)
 	}
-	if result.ModelVersion != risk.ModelVersion || len(result.PathScores) != 1 || result.PathScores[0].Formula.Numerator == 0 || result.PathScores[0].Path == nil {
+	if result.SchemaVersion != risk.ResultSchemaVersion || result.ModelVersion != risk.ModelVersion || len(result.PathScores) != 1 || len(result.RiskFamilies) != 1 || result.PathScores[0].Formula.Numerator == 0 || result.PathScores[0].Path == nil {
 		t.Fatalf("unexpected machine contract: %#v", result)
+	}
+	if result.Cluster.RiskFamilyCount != 1 || result.Cluster.ContributingFamilies != 1 || len(result.Cluster.Contributions) != 1 {
+		t.Fatalf("risk family breakdown is incomplete: %#v", result.Cluster)
 	}
 	if result.Cluster.Score == 0 || len(result.Identities) != 1 || len(result.Namespaces) != 1 {
 		t.Fatalf("aggregate contract is incomplete: %#v", result)
 	}
 
 	code, stdout, stderr = execute("risk", "--snapshot", path, "--top", "3")
-	if code != 0 || stderr != "" || !strings.Contains(stdout, "cluster risk:") || !strings.Contains(stdout, "factor: IMPACT") || !strings.Contains(stdout, "formula: weightedTotal=") {
+	if code != 0 || stderr != "" || !strings.Contains(stdout, "cluster risk:") || !strings.Contains(stdout, "not breach probability") || !strings.Contains(stdout, "risk family 1:") || !strings.Contains(stdout, "factor: IMPACT") || !strings.Contains(stdout, "formula: weightedTotal=") {
 		t.Fatalf("human code = %d stdout = %q stderr = %q", code, stdout, stderr)
 	}
 }

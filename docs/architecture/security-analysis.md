@@ -79,7 +79,7 @@ separately from exploitable candidates.
 This prevents a merely short theoretical chain from outranking a longer,
 well-evidenced and more practical chain.
 
-## Risk scoring model `1.0.0`
+## Risk scoring model `2.0.0`
 
 Severity and risk score are separate. Every score includes raw factors,
 weights, mitigation deductions, and the final normalization.
@@ -95,7 +95,9 @@ Base factors use a 0–100 scale:
 | Path quality | 0.10 | evidence completeness and complexity |
 | Confidence | 0.10 | explicit state mapping |
 
-Model `1.0.0` derives those values without hidden state:
+Model `2.0.0` preserves the calibrated path factors from `1.0.0` and derives
+those values without hidden state. The version change identifies the new
+root-cause-family aggregate, not a silent change to individual path weights:
 
 - impact and blast radius come from the versioned typed privilege target;
 - exploitability starts at 100 and deducts eight points for each modeled base,
@@ -134,13 +136,25 @@ Suggested severity bands for MVP:
 - `LOW`: 1–39
 - `INFO`: 0 or non-risk informational observations
 
-Cluster, namespace, and identity risk are not simple sums. Parallel paths with
-the same source, template, and privilege-target key form one semantic risk
-unit; the highest score represents that unit while every path ID remains
-available as evidence. Aggregation starts with the highest distinct unit, then
-adds 15% of each additional unit's score against the remaining headroom. This
-is deterministic and saturating, and prevents duplicate bindings or raw object
-count from linearly inflating risk.
+Cluster, namespace, and identity risk are not simple sums. Model `2.0.0` first
+groups derivative paths into a root-cause family keyed by the exact RBAC
+binding and subject. The highest path represents the family; other techniques
+and targets remain evidence but cannot increase that family's score. Families
+with the same complete set of semantic risk units are retained as separate
+remediation roots, but only one deterministic representative contributes to
+the aggregate.
+
+The aggregate starts with the highest semantically distinct family at 100%.
+At most five additional families contribute at ranked weights `5/3/2/1/1%`.
+Their combined contribution is capped at `+12`, and the final index remains
+bounded at 100. JSON exposes every family, semantic key, selected contributor,
+weight, and integer contribution. Thus raw path count, a wildcard rule that
+generates many targets, and redundant equivalent bindings cannot rapidly
+saturate the posture index.
+
+`100/100` is reserved for a primary family already scored at 100 or for enough
+independent high-risk families to fill the remaining headroom. It is still a
+posture index, never breach probability.
 
 Cluster-impact paths are attributed to every namespace actually observed in
 the snapshot inventory. They are not expanded to guessed or inaccessible

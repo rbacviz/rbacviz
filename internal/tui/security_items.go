@@ -6,18 +6,26 @@ import (
 
 	"github.com/rbacviz/rbacviz/internal/analysis"
 	"github.com/rbacviz/rbacviz/internal/attackpath"
+	"github.com/rbacviz/rbacviz/internal/baseline"
 	"github.com/rbacviz/rbacviz/internal/remediation"
 )
 
 func findingItems(data Dataset) []item {
 	values := make([]item, 0, len(data.Findings.Findings))
+	accepted := data.Suppressions.AcceptedFindingIDs()
 	for _, finding := range data.Findings.Findings {
 		namespace := findingNamespace(finding)
+		status := ""
+		detail := findingDetail(finding)
+		if _, found := accepted[finding.ID]; found {
+			status = "ACCEPTED · "
+			detail = lines("ACCEPTED EXCEPTION", acceptedNote(data.Suppressions.Accepted, finding.ID, false), "", detail)
+		}
 		values = append(values, item{
-			ID: finding.ID, Title: finding.Title, Subtitle: fmt.Sprintf("%s · %d/100 · %s", finding.Severity, finding.RiskScore, finding.RuleID),
+			ID: finding.ID, Title: finding.Title, Subtitle: fmt.Sprintf("%s%s · %d/100 · %s", status, finding.Severity, finding.RiskScore, finding.RuleID),
 			Namespace: namespace, Severity: string(finding.Severity), Confidence: string(finding.Confidence), Risk: finding.RiskScore,
 			Search: strings.ToLower(finding.Title + " " + finding.ID + " " + finding.RuleID + " " + namespace),
-			Detail: findingDetail(finding), Evidence: findingEvidence(finding), Remediation: strings.Join(finding.Recommendations, "\n\n"),
+			Detail: detail, Evidence: findingEvidence(finding), Remediation: strings.Join(finding.Recommendations, "\n\n"),
 		})
 	}
 	return values
@@ -29,17 +37,28 @@ func pathItems(data Dataset) []item {
 	}
 	riskByPath := make(map[string]int, len(data.Risk.PathScores))
 	severityByPath := make(map[string]string, len(data.Risk.PathScores))
+	familyByPath := make(map[string]string, len(data.Risk.PathScores))
 	for _, score := range data.Risk.PathScores {
 		riskByPath[score.PathID], severityByPath[score.PathID] = score.Score, string(score.Severity)
+		familyByPath[score.PathID] = score.RiskFamilyID
 	}
+	accepted := data.Suppressions.AcceptedRiskFamilyIDs()
 	values := make([]item, 0, len(data.Paths.Paths))
 	for _, path := range data.Paths.Paths {
 		riskValue, severity := riskByPath[path.ID], severityByPath[path.ID]
+		status := ""
+		if _, found := accepted[familyByPath[path.ID]]; found {
+			status = "ACCEPTED · "
+		}
+		detail := pathDetail(path, riskValue, severity)
+		if status != "" {
+			detail = lines("ACCEPTED ROOT-CAUSE FAMILY", acceptedNote(data.Suppressions.Accepted, familyByPath[path.ID], true), "", detail)
+		}
 		values = append(values, item{
-			ID: path.ID, Title: path.Title, Subtitle: fmt.Sprintf("risk %d %s · %s · cost %d", riskValue, defaultText(severity, "INFO"), path.Confidence, path.Cost),
+			ID: path.ID, Title: path.Title, Subtitle: fmt.Sprintf("%srisk %d %s · %s · cost %d", status, riskValue, defaultText(severity, "INFO"), path.Confidence, path.Cost),
 			Namespace: path.Target.Namespace, Severity: severity, Confidence: string(path.Confidence), Risk: riskValue,
 			Search: strings.ToLower(path.Title + " " + path.Source.String() + " " + string(path.Target.Type) + " " + path.Target.Namespace + " " + path.ID),
-			Detail: pathDetail(path, riskValue, severity), Evidence: pathEvidence(path), Remediation: pathRemediation(path),
+			Detail: detail, Evidence: pathEvidence(path), Remediation: pathRemediation(path),
 		})
 	}
 	return values
@@ -47,25 +66,49 @@ func pathItems(data Dataset) []item {
 
 func pathSummaryItems(data Dataset) []item {
 	values := make([]item, 0, len(data.Risk.PathScores))
+	accepted := data.Suppressions.AcceptedRiskFamilyIDs()
 	for _, score := range data.Risk.PathScores {
 		namespace := score.Target.Namespace
+		status := ""
+		if _, found := accepted[score.RiskFamilyID]; found {
+			status = "ACCEPTED · "
+		}
+		detail := lines("ATTACK PATH SUMMARY", score.Title, fmt.Sprintf("Path ID: %s", score.PathID), fmt.Sprintf("Template: %s", score.TemplateID),
+			fmt.Sprintf("Risk: %d/100 %s", score.Score, score.Severity), fmt.Sprintf("Confidence: %s · blocked %t", score.Confidence, score.Blocked),
+			fmt.Sprintf("Source: %s", score.Source.String()), fmt.Sprintf("Target: %s", score.Target.Type), fmt.Sprintf("Namespace: %s", defaultText(namespace, "cluster-wide")),
+			"", "Detailed steps and RBAC evidence are loaded only when this screen is requested.")
+		if status != "" {
+			detail = lines("ACCEPTED ROOT-CAUSE FAMILY", acceptedNote(data.Suppressions.Accepted, score.RiskFamilyID, true), "", detail)
+		}
 		values = append(values, item{
 			ID: score.PathID, Title: score.Title,
-			Subtitle:  fmt.Sprintf("risk %d %s · %s · details on demand", score.Score, score.Severity, score.Confidence),
+			Subtitle:  fmt.Sprintf("%srisk %d %s · %s · details on demand", status, score.Score, score.Severity, score.Confidence),
 			Namespace: namespace, Severity: string(score.Severity), Confidence: string(score.Confidence), Risk: score.Score,
-			Search: strings.ToLower(score.Title + " " + score.Source.String() + " " + string(score.Target.Type) + " " + namespace + " " + score.PathID),
-			Detail: lines("ATTACK PATH SUMMARY", score.Title, fmt.Sprintf("Path ID: %s", score.PathID), fmt.Sprintf("Template: %s", score.TemplateID),
-				fmt.Sprintf("Risk: %d/100 %s", score.Score, score.Severity), fmt.Sprintf("Confidence: %s · blocked %t", score.Confidence, score.Blocked),
-				fmt.Sprintf("Source: %s", score.Source.String()), fmt.Sprintf("Target: %s", score.Target.Type), fmt.Sprintf("Namespace: %s", defaultText(namespace, "cluster-wide")),
-				"", "Detailed steps and RBAC evidence are loaded only when this screen is requested."),
+			Search:   strings.ToLower(score.Title + " " + score.Source.String() + " " + string(score.Target.Type) + " " + namespace + " " + score.PathID),
+			Detail:   detail,
 			Evidence: "Detailed path evidence is loading on demand.",
 		})
 	}
 	return values
 }
 
+func acceptedNote(matches []baseline.Match, id string, family bool) string {
+	for _, match := range matches {
+		values := match.FindingIDs
+		if family {
+			values = match.RiskFamilyIDs
+		}
+		if !containsString(values, id) {
+			continue
+		}
+		return fmt.Sprintf("Suppression: %s\nOwner: %s\nReason: %s\nExpires: %s\nThe raw signal remains visible; only an explicitly selected root-cause family is excluded from the active Risk Index.",
+			match.Suppression.ID, match.Suppression.Owner, match.Suppression.Reason, match.Suppression.Expires)
+	}
+	return "The raw signal remains visible with its original evidence."
+}
+
 func warningItems(data Dataset) []item {
-	values := make([]item, 0, len(data.Snapshot.Warnings)+len(data.Findings.Warnings)+len(data.Paths.Warnings)+len(data.Risk.Warnings))
+	values := make([]item, 0, len(data.Snapshot.Warnings)+len(data.Findings.Warnings)+len(data.Paths.Warnings)+len(data.Risk.Warnings)+len(data.Explanations.Warnings)+len(data.Suppressions.Expired)+len(data.Suppressions.Unmatched))
 	for _, warning := range data.Snapshot.Warnings {
 		title := warning.Code + ": " + warning.Resource
 		values = append(values, item{ID: "collection:" + title, Title: title, Subtitle: "COLLECTION", Severity: "HIGH", Search: strings.ToLower(title + " " + warning.Message), Detail: lines("COLLECTION WARNING", title, warning.Message)})
@@ -78,6 +121,17 @@ func warningItems(data Dataset) []item {
 	}
 	for _, warning := range data.Risk.Warnings {
 		values = append(values, analysisWarningItem("risk", warning.Code, warning.Message))
+	}
+	for _, warning := range data.Explanations.Warnings {
+		values = append(values, analysisWarningItem("access", warning.Code, warning.Message))
+	}
+	for _, value := range data.Suppressions.Expired {
+		message := fmt.Sprintf("Suppression %s expired on %s and was not applied. Owner: %s. Reason: %s", value.Suppression.ID, value.Suppression.Expires, value.Suppression.Owner, value.Suppression.Reason)
+		values = append(values, analysisWarningItem("baseline", "EXPIRED_SUPPRESSION", message))
+	}
+	for _, value := range data.Suppressions.Unmatched {
+		message := fmt.Sprintf("Suppression %s matched no current signal and may be stale. Owner: %s.", value.Suppression.ID, value.Suppression.Owner)
+		values = append(values, analysisWarningItem("baseline", "UNMATCHED_SUPPRESSION", message))
 	}
 	if (data.Paths.SchemaVersion != "" && data.Paths.Truncated) || data.Risk.Truncated {
 		values = append(values, item{ID: "analysis:truncated", Title: "BOUNDED_RESULT: analysis truncated", Subtitle: "ANALYSIS", Severity: "MEDIUM", Detail: "The configured expansion or path limit was reached. Results remain valid but are not exhaustive."})

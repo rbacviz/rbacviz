@@ -84,7 +84,7 @@ func Build(ctx context.Context, options Options) (Manifest, error) {
 		base := fmt.Sprintf("rbacviz_%s_%s_%s", versionName, target.OS, target.Arch)
 		root := fmt.Sprintf("rbacviz_%s_%s_%s", versionName, target.OS, target.Arch)
 		files := []File{{Name: "rbacviz" + extension, Path: binary, Mode: 0o755}}
-		for _, name := range []string{"LICENSE", "README.md", "SECURITY.md"} {
+		for _, name := range []string{"LICENSE", "README.md", "SECURITY.md", "CHANGELOG.md"} {
 			files = append(files, File{Name: name, Path: filepath.Join(options.RepoDir, name), Mode: 0o644})
 		}
 		archive := filepath.Join(options.OutputDir, base+".tar.gz")
@@ -176,7 +176,7 @@ func validateOptions(options *Options) error {
 	if options.GoBinary == "" {
 		options.GoBinary = "go"
 	}
-	for _, name := range []string{"LICENSE", "README.md", "SECURITY.md", "go.mod", "go.sum"} {
+	for _, name := range []string{"LICENSE", "README.md", "SECURITY.md", "CHANGELOG.md", "go.mod", "go.sum"} {
 		if _, err := os.Stat(filepath.Join(options.RepoDir, name)); err != nil {
 			return fmt.Errorf("release input %s: %w", name, err)
 		}

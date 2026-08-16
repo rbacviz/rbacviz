@@ -141,8 +141,8 @@ func capabilityTitle(value permission.Capability) string {
 	return value.Verb + " " + resource
 }
 
-func capabilityDetail(value permission.Capability) string {
-	parts := []string{"EFFECTIVE PERMISSION", capabilityTitle(value), fmt.Sprintf("Scope: %s", value.Scope), fmt.Sprintf("Namespace: %s", defaultText(value.Namespace, "cluster-wide")), fmt.Sprintf("Independent grants: %d", len(value.Grants))}
+func capabilityDetailWithGrantCount(value permission.Capability, grants int) string {
+	parts := []string{"EFFECTIVE PERMISSION", capabilityTitle(value), fmt.Sprintf("Scope: %s", value.Scope), fmt.Sprintf("Namespace: %s", defaultText(value.Namespace, "cluster-wide")), fmt.Sprintf("Independent grants: %d", grants)}
 	if len(value.ResourceNames) > 0 {
 		parts = append(parts, "Resource names: "+strings.Join(value.ResourceNames, ", "))
 	}

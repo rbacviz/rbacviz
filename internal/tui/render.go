@@ -43,7 +43,8 @@ func (model *Model) renderHeader(width int) string {
 	left := model.styles.title.Render("RBACVIZ") + "  " + model.styles.subtitle.Render("Kubernetes identity attack surface")
 	right := ""
 	if !model.loading && model.err == nil {
-		right = model.styles.severity(string(model.data.Risk.Cluster.Severity), fmt.Sprintf("RISK %d %s", model.data.Risk.Cluster.Score, model.data.Risk.Cluster.Severity))
+		posture := activeRisk(model.data)
+		right = model.styles.severity(string(posture.Cluster.Severity), fmt.Sprintf("RISK INDEX %d %s", posture.Cluster.Score, posture.Cluster.Severity))
 	}
 	space := maxInt(1, width-lipgloss.Width(left)-lipgloss.Width(right))
 	return truncate(left+strings.Repeat(" ", space)+right, width)
@@ -87,27 +88,36 @@ func (model *Model) renderBody(width, height int) string {
 	height = maxInt(4, height)
 	if width < 80 {
 		if model.compactDetail {
-			return model.renderCompactInspector(width, height)
+			return model.renderCompactDetail(width, height)
 		}
 		return model.renderListPanel(width, height)
 	}
-	listWidth := width * 40 / 100
+	listWidth := width * 38 / 100
 	if width >= 120 {
-		listWidth = width * 31 / 100
+		listWidth = width * 30 / 100
 	}
-	remaining := width - listWidth - 1
-	inspector := remaining
-	if width >= 120 {
-		inspector = width * 39 / 100
+	if width >= 160 {
+		listWidth = width * 24 / 100
 	}
 	list := model.renderListPanel(listWidth, height)
-	detail := model.renderInspectorPanel(inspector, height)
 	if width < 120 {
+		detailWidth := width - listWidth - 1
+		detail := model.renderInspectorPanel(detailWidth, height)
+		if model.focus == panelAccess {
+			detail = model.renderAccessPanel(detailWidth, height)
+		}
 		return lipgloss.JoinHorizontal(lipgloss.Top, list, " ", detail)
 	}
-	evidenceWidth := maxInt(20, width-listWidth-inspector-2)
+	inspector := width * 32 / 100
+	access := width - listWidth - inspector - 2
+	if width < 160 {
+		return lipgloss.JoinHorizontal(lipgloss.Top, list, " ", model.renderInspectorPanel(inspector, height), " ", model.renderAccessPanel(access, height))
+	}
+	inspector = width * 25 / 100
+	access = width * 29 / 100
+	evidenceWidth := maxInt(20, width-listWidth-inspector-access-3)
 	evidence := model.renderEvidencePanel(evidenceWidth, height)
-	return lipgloss.JoinHorizontal(lipgloss.Top, list, " ", detail, " ", evidence)
+	return lipgloss.JoinHorizontal(lipgloss.Top, list, " ", model.renderInspectorPanel(inspector, height), " ", model.renderAccessPanel(access, height), " ", evidence)
 }
 
 func (model *Model) renderListPanel(width, height int) string {
@@ -156,13 +166,22 @@ func (model *Model) renderEvidencePanel(width, height int) string {
 	return model.panel(width, height, model.focus == panelEvidence, "Evidence", model.evidence.View())
 }
 
-func (model *Model) renderCompactInspector(width, height int) string {
+func (model *Model) renderAccessPanel(width, height int) string {
+	return model.panel(width, height, model.focus == panelAccess, "Access Chain", model.access.View())
+}
+
+func (model *Model) renderCompactDetail(width, height int) string {
 	selected, ok := model.selected()
 	body := "No matching item."
+	title := "Inspector · Esc back"
 	if ok {
 		body = wrapText(selected.Detail, maxInt(12, width-6))
 	}
-	return model.panel(width, height, true, "Inspector · Esc back", body)
+	if model.focus == panelAccess {
+		title = "Access Chain · Esc back"
+		body = wrapText(accessContent(model.data.Explanations.Lookup(selected.ID)), maxInt(12, width-6))
+	}
+	return model.panel(width, height, true, title, body)
 }
 
 func (model *Model) panel(width, height int, focused bool, title, body string) string {
@@ -204,7 +223,7 @@ func helpText() string {
 	return strings.Join([]string{
 		"↑/↓ or j/k      move / scroll focused panel", "←/→ or h/l      previous / next view",
 		"Enter            inspect", "Esc              back / clear search", "/                search current view",
-		"f                cycle filters", "s                cycle sort", "Tab / Shift+Tab  switch panels",
+		"f                cycle filters", "s                cycle sort", "Tab / Shift+Tab  switch Inspector / Access Chain / Evidence",
 		"e                evidence", "p                attack paths", "r                advisory remediation",
 		"PgUp/PgDn        page", "g/G              first / last", "q                quit", "Ctrl+C           cancel",
 	}, "\n")
@@ -227,7 +246,7 @@ func (model *Model) center(width, height int, text string) string {
 func (model *Model) incomplete() bool {
 	pathsIncomplete := model.data.Paths.SchemaVersion != "" && !model.data.Paths.Complete
 	remediationIncomplete := model.data.Remediation.SchemaVersion != "" && !model.data.Remediation.Complete
-	return !model.data.Snapshot.Metadata.Complete || !model.data.Findings.Complete || pathsIncomplete || !model.data.Risk.Complete || remediationIncomplete || len(model.data.Snapshot.Warnings) > 0
+	return !model.data.Snapshot.Metadata.Complete || !model.data.Findings.Complete || pathsIncomplete || !model.data.Risk.Complete || !model.data.Explanations.Complete || remediationIncomplete || len(model.data.Snapshot.Warnings) > 0
 }
 
 func inspectorWidth(width int) int {
@@ -235,14 +254,30 @@ func inspectorWidth(width int) int {
 		return width
 	}
 	if width < 120 {
-		return width - width*40/100 - 1
+		return width - width*38/100 - 1
 	}
-	return width * 39 / 100
+	if width < 160 {
+		return width * 32 / 100
+	}
+	return width * 25 / 100
+}
+
+func accessWidth(width int) int {
+	if width < 80 {
+		return width
+	}
+	if width < 120 {
+		return width - width*38/100 - 1
+	}
+	if width < 160 {
+		return width - width*30/100 - width*32/100 - 2
+	}
+	return width * 29 / 100
 }
 
 func evidenceWidth(width int) int {
-	if width < 120 {
+	if width < 160 {
 		return inspectorWidth(width)
 	}
-	return width - width*31/100 - width*39/100 - 2
+	return width - width*24/100 - width*25/100 - width*29/100 - 3
 }

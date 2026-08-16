@@ -13,7 +13,7 @@ import (
 	"github.com/rbacviz/rbacviz/internal/snapshot"
 )
 
-const schemaURI = "https://json.schemastore.org/sarif-2.1.0.json"
+const schemaURI = "https://docs.oasis-open.org/sarif/sarif/v2.1.0/errata01/os/schemas/sarif-schema-2.1.0.json"
 
 type report struct {
 	Version string `json:"version"`
@@ -70,7 +70,14 @@ type message struct {
 }
 
 type location struct {
-	PhysicalLocation physicalLocation `json:"physicalLocation"`
+	PhysicalLocation *physicalLocation `json:"physicalLocation,omitempty"`
+	LogicalLocations []logicalLocation `json:"logicalLocations,omitempty"`
+}
+
+type logicalLocation struct {
+	Name               string `json:"name"`
+	FullyQualifiedName string `json:"fullyQualifiedName"`
+	Kind               string `json:"kind"`
 }
 
 type physicalLocation struct {
@@ -107,7 +114,7 @@ func Write(writer io.Writer, findings analysis.Result) error {
 	for _, finding := range findings.Findings {
 		locations := make([]location, 0, len(finding.AffectedObjects))
 		for _, ref := range finding.AffectedObjects {
-			locations = append(locations, location{PhysicalLocation: physicalLocation{ArtifactLocation: artifactLocation{URI: kubernetesURI(ref)}}})
+			locations = append(locations, location{PhysicalLocation: &physicalLocation{ArtifactLocation: artifactLocation{URI: kubernetesURI(ref)}}})
 		}
 		results = append(results, result{
 			RuleID: finding.RuleID, Level: sarifLevel(finding.Severity),

@@ -7,7 +7,7 @@ test_dir="$(mktemp -d)"
 trap 'rm -rf "$test_dir"' EXIT HUP INT TERM
 
 fixture_dir="$test_dir/fixtures"
-archive_root="rbacviz_0.1.0_linux_amd64"
+archive_root="rbacviz_0.2.0_linux_amd64"
 mkdir -p "$fixture_dir/$archive_root" "$test_dir/fake-bin" "$test_dir/install"
 
 printf '#!/bin/sh\nprintf "rbacviz test binary\\n"\n' > "$fixture_dir/$archive_root/rbacviz"
@@ -41,4 +41,3 @@ test -x "$test_dir/install/rbacviz"
 test "$("$test_dir/install/rbacviz")" = "rbacviz test binary"
 
 printf 'installer test passed\n'
-

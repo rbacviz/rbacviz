@@ -8,7 +8,7 @@ on:
       version:
         description: Semantic version to build without publishing
         required: true
-        default: v0.1.0-dev
+        default: v0.2.0
 
 permissions:
   contents: read
@@ -27,7 +27,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.25.12'
+          go-version: '1.25.13'
           cache: true
       - uses: golangci/golangci-lint-action@v9.3.0
         with:

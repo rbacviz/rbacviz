@@ -5,13 +5,14 @@ package risk
 import (
 	"github.com/rbacviz/rbacviz/internal/attackpath"
 	"github.com/rbacviz/rbacviz/internal/permission"
+	"github.com/rbacviz/rbacviz/internal/snapshot"
 )
 
 const (
 	// ResultSchemaVersion versions the machine-readable risk result.
-	ResultSchemaVersion = "1.0"
+	ResultSchemaVersion = "1.1"
 	// ModelVersion identifies the exact scoring constants and aggregation model.
-	ModelVersion = "1.0.0"
+	ModelVersion = "2.0.0"
 )
 
 // Severity is derived from a score and is not an independent hidden input.
@@ -95,7 +96,51 @@ type PathScore struct {
 	Score          int                        `json:"score"`
 	Severity       Severity                   `json:"severity"`
 	RiskUnit       string                     `json:"riskUnit"`
+	RiskFamilyID   string                     `json:"riskFamilyId"`
+	RootCauseKey   string                     `json:"rootCauseKey"`
+	RootCause      string                     `json:"rootCause"`
+	GrantIDs       []string                   `json:"grantIds"`
+	BindingRef     *snapshot.ObjectRef        `json:"bindingRef,omitempty"`
+	RoleRef        *snapshot.ObjectRef        `json:"roleRef,omitempty"`
 	Path           *attackpath.Path           `json:"path,omitempty"`
+}
+
+// Family groups every derivative path produced by one observed RBAC root
+// cause. A broad binding therefore remains one posture problem even when it
+// enables several techniques or targets.
+type Family struct {
+	ID                string                           `json:"id"`
+	RootCauseKey      string                           `json:"rootCauseKey"`
+	RootCause         string                           `json:"rootCause"`
+	SemanticKey       string                           `json:"semanticKey"`
+	Source            permission.Identity              `json:"source"`
+	BindingRef        *snapshot.ObjectRef              `json:"bindingRef,omitempty"`
+	RoleRef           *snapshot.ObjectRef              `json:"roleRef,omitempty"`
+	Score             int                              `json:"score"`
+	Severity          Severity                         `json:"severity"`
+	Confidence        attackpath.Confidence            `json:"confidence"`
+	Blocked           bool                             `json:"blocked"`
+	PrimaryPathID     string                           `json:"primaryPathId"`
+	PrimaryRiskUnit   string                           `json:"primaryRiskUnit"`
+	PathCount         int                              `json:"pathCount"`
+	DistinctRiskUnits int                              `json:"distinctRiskUnits"`
+	PathIDs           []string                         `json:"pathIds"`
+	RiskUnits         []string                         `json:"riskUnits"`
+	GrantIDs          []string                         `json:"grantIds"`
+	TemplateIDs       []string                         `json:"templateIds"`
+	TargetTypes       []attackpath.PrivilegeTargetType `json:"targetTypes"`
+}
+
+// FamilyContribution exposes the exact ranked-family arithmetic used by an
+// aggregate. Semantically duplicate families remain visible in RiskFamilies
+// but only one representative contributes to the index.
+type FamilyContribution struct {
+	FamilyID     string `json:"familyId"`
+	SemanticKey  string `json:"semanticKey"`
+	Score        int    `json:"score"`
+	Weight       int    `json:"weightPercent"`
+	Contribution int    `json:"contribution"`
+	Primary      bool   `json:"primary"`
 }
 
 // AggregateKind distinguishes cluster, namespace, and identity rollups.
@@ -121,8 +166,12 @@ type AggregateScore struct {
 	PrimaryScore           int                  `json:"primaryScore"`
 	AdditionalContribution int                  `json:"additionalContribution"`
 	DistinctRiskUnits      int                  `json:"distinctRiskUnits"`
+	RiskFamilyCount        int                  `json:"riskFamilyCount"`
+	ContributingFamilies   int                  `json:"contributingFamilies"`
 	PathCount              int                  `json:"pathCount"`
 	PathIDs                []string             `json:"pathIds"`
+	RiskFamilyIDs          []string             `json:"riskFamilyIds"`
+	Contributions          []FamilyContribution `json:"contributions"`
 	Explanation            string               `json:"explanation"`
 }
 
@@ -148,6 +197,7 @@ type Result struct {
 	Complete      bool             `json:"complete"`
 	Truncated     bool             `json:"truncated"`
 	PathScores    []PathScore      `json:"pathScores"`
+	RiskFamilies  []Family         `json:"riskFamilies"`
 	Identities    []AggregateScore `json:"identities"`
 	Namespaces    []AggregateScore `json:"namespaces"`
 	Cluster       AggregateScore   `json:"cluster"`

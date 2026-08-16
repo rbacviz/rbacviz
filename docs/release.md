@@ -3,6 +3,7 @@
 `rbacviz` releases are built from one source tree with one Go toolchain. The
 release helper compiles five static binaries, places each in a platform archive,
 emits a CycloneDX 1.5 SBOM and release manifest, and writes SHA-256 checksums.
+Each archive also carries the changelog for the published version.
 
 ## Supported artifacts
 
@@ -20,17 +21,17 @@ published beside the archives.
 
 ## Local release
 
-Use a clean source tree and Go 1.25.12, the patched toolchain pinned by the
-initial `v0.1.x` release workflow:
+Use a clean source tree and Go 1.25.13, the patched toolchain pinned by the
+`v0.2.0` release workflow:
 
 ```bash
 export SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
 make verify lint vuln
 make verify-reproducible \
-  VERSION=v0.1.0 COMMIT="$(git rev-parse HEAD)" \
+  VERSION=v0.2.0 COMMIT="$(git rev-parse HEAD)" \
   SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH"
 make release \
-  VERSION=v0.1.0 COMMIT="$(git rev-parse HEAD)" \
+  VERSION=v0.2.0 COMMIT="$(git rev-parse HEAD)" \
   SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH"
 ```
 
@@ -50,8 +51,8 @@ Go toolchain, module graph, environment architecture, and release helper.
 
 ```bash
 sha256sum -c checksums.txt
-tar -xzf rbacviz_0.1.0_linux_amd64.tar.gz
-./rbacviz_0.1.0_linux_amd64/rbacviz version --output json
+tar -xzf rbacviz_0.2.0_linux_amd64.tar.gz
+./rbacviz_0.2.0_linux_amd64/rbacviz version --output json
 ```
 
 On macOS use `shasum -a 256`; on Windows use `Get-FileHash -Algorithm SHA256`.

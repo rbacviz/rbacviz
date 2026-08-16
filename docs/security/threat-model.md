@@ -1,6 +1,6 @@
 # Threat model
 
-This document defines the security boundary of `rbacviz` release `v0.1.x`.
+This document defines the security boundary of `rbacviz` release `v0.2.x`.
 It is deliberately narrower than a penetration-testing tool: `rbacviz` explains
 observed authorization state and models possible paths, but never executes one.
 
@@ -97,12 +97,21 @@ make verify
 make lint
 make vuln
 make screenshots
-make verify-reproducible VERSION=v0.1.0 COMMIT=<commit> SOURCE_DATE_EPOCH=<epoch>
+make verify-reproducible VERSION=v0.2.0 COMMIT=<commit> SOURCE_DATE_EPOCH=<epoch>
 ```
 
 Review changes touching `internal/collector`, `internal/snapshot`,
 `internal/simulate`, `internal/remediation`, CLI command registration, archive
 generation, or GitHub workflow permissions as security-sensitive.
+
+Baseline files are also security-sensitive policy input. The loader rejects
+unknown fields, wildcard selectors, incomplete review metadata, invalid
+identity/binding scope, and incompatible schemas. Expired entries fail safe and
+unmatched entries remain visible. Accepted entries never delete raw findings,
+paths, or evidence; they affect only the separately labeled active posture
+rollup.
+Suppressing one rule never suppresses its entire root-cause family; changing
+the posture rollup requires an explicit `riskFamilyId` or `rootCauseKey`.
 
 ## Known limitations
 

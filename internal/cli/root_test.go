@@ -75,7 +75,7 @@ func TestRootHelpHasNoFuturePlaceholders(t *testing.T) {
 	if code != 0 || stderr != "" {
 		t.Fatalf("code = %d, stderr = %q", code, stderr)
 	}
-	if !strings.Contains(stdout, "version") || !strings.Contains(stdout, "config") || !strings.Contains(stdout, "snapshot") || !strings.Contains(stdout, "permissions") || !strings.Contains(stdout, "who-can") || !strings.Contains(stdout, "why-can") || !strings.Contains(stdout, "graph") || !strings.Contains(stdout, "findings") || !strings.Contains(stdout, "explain") || !strings.Contains(stdout, "attack-path") || !strings.Contains(stdout, "risk") || !strings.Contains(stdout, "tui") || !strings.Contains(stdout, "diff") || !strings.Contains(stdout, "simulate") {
+	if !strings.Contains(stdout, "version") || !strings.Contains(stdout, "config") || !strings.Contains(stdout, "snapshot") || !strings.Contains(stdout, "permissions") || !strings.Contains(stdout, "who-can") || !strings.Contains(stdout, "why-can") || !strings.Contains(stdout, "graph") || !strings.Contains(stdout, "findings") || !strings.Contains(stdout, "explain") || !strings.Contains(stdout, "attack-path") || !strings.Contains(stdout, "risk") || !strings.Contains(stdout, "tui") || !strings.Contains(stdout, "diff") || !strings.Contains(stdout, "simulate") || !strings.Contains(stdout, "report") {
 		t.Fatalf("help is missing implemented commands: %s", stdout)
 	}
 	if strings.Contains(stdout, "\n  scan ") {

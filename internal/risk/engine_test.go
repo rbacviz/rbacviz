@@ -69,8 +69,60 @@ func TestDuplicateGrantPathsDoNotInflateAggregateRiskUnits(t *testing.T) {
 	if result.Cluster.PathCount != 2 || result.Cluster.DistinctRiskUnits != 1 || result.Cluster.AdditionalContribution != 0 {
 		t.Fatalf("duplicate grants inflated aggregate: %#v", result.Cluster)
 	}
+	if result.Cluster.RiskFamilyCount != 2 || result.Cluster.ContributingFamilies != 1 || len(result.RiskFamilies) != 2 {
+		t.Fatalf("root causes or semantic deduplication were hidden: %#v %#v", result.Cluster, result.RiskFamilies)
+	}
 	if len(result.Identities) != 1 || result.Identities[0].DistinctRiskUnits != 1 {
 		t.Fatalf("identity aggregate is wrong: %#v", result.Identities)
+	}
+}
+
+func TestBroadRootCauseCountsOnceAndIndependentFamiliesHaveBoundedWeight(t *testing.T) {
+	t.Parallel()
+	paths := []PathScore{
+		aggregateFixture("family-a", "unit-a", "path-a", 80),
+		aggregateFixture("family-a", "unit-b", "path-b", 75),
+	}
+	one := aggregate(AggregateCluster, "cluster", nil, "", paths)
+	if one.Score != 80 || one.RiskFamilyCount != 1 || one.DistinctRiskUnits != 2 || one.AdditionalContribution != 0 {
+		t.Fatalf("one broad root cause inflated the index: %#v", one)
+	}
+
+	// A redundant binding with the same complete outcome set remains a visible
+	// root cause, but does not add posture risk a second time.
+	paths = append(paths,
+		aggregateFixture("family-b", "unit-a", "path-c", 80),
+		aggregateFixture("family-b", "unit-b", "path-d", 75),
+	)
+	redundant := aggregate(AggregateCluster, "cluster", nil, "", paths)
+	if redundant.Score != 80 || redundant.RiskFamilyCount != 2 || redundant.ContributingFamilies != 1 {
+		t.Fatalf("semantically duplicate family inflated the index: %#v", redundant)
+	}
+
+	paths = append(paths, aggregateFixture("family-c", "unit-c", "path-e", 70))
+	independent := aggregate(AggregateCluster, "cluster", nil, "", paths)
+	if independent.Score != 84 || independent.AdditionalContribution != 4 || independent.ContributingFamilies != 2 {
+		t.Fatalf("independent family contribution is not calibrated: %#v", independent)
+	}
+	if len(independent.Contributions) != 2 || independent.Contributions[1].Weight != 5 || independent.Contributions[1].Contribution != 4 {
+		t.Fatalf("aggregate arithmetic is not explainable: %#v", independent.Contributions)
+	}
+}
+
+func TestFamilyDiversityContributionIsCapped(t *testing.T) {
+	t.Parallel()
+	paths := make([]PathScore, 0, 10)
+	for index := 0; index < 10; index++ {
+		paths = append(paths, aggregateFixture(
+			fmt.Sprintf("family-%02d", index), fmt.Sprintf("unit-%02d", index), fmt.Sprintf("path-%02d", index), 80,
+		))
+	}
+	value := aggregate(AggregateCluster, "cluster", nil, "", paths)
+	if value.Score != 90 || value.AdditionalContribution != 10 || len(value.Contributions) != 6 {
+		t.Fatalf("unexpected ranked-family calibration: %#v", value)
+	}
+	if value.AdditionalContribution > maxFamilyDiversityContribution {
+		t.Fatalf("family diversity exceeded cap: %#v", value)
 	}
 }
 
@@ -226,6 +278,18 @@ func factorValue(values []Factor, name FactorName) int {
 		}
 	}
 	return -1
+}
+
+func aggregateFixture(family, unit, pathID string, score int) PathScore {
+	source := permission.Identity{Kind: snapshot.IdentityUser, Name: "alice"}
+	key := "grant|" + family + "|" + source.String()
+	return PathScore{
+		PathID: pathID, TemplateID: "template-" + unit, Source: source,
+		Target:     attackpath.PrivilegeTarget{Type: attackpath.TargetRBACControl, Key: unit},
+		Confidence: attackpath.ConfidenceLikely, Score: score, Severity: severity(score),
+		RiskUnit: source.String() + "\x00" + unit, RootCauseKey: key,
+		RootCause: "fixture " + family, RiskFamilyID: stableID("family", key),
+	}
 }
 
 func baseSnapshot() snapshot.Snapshot {

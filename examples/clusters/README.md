@@ -16,6 +16,8 @@ rbacviz findings --snapshot examples/clusters/token-minter.json
 rbacviz attack-path --snapshot examples/clusters/host-escape-blocked.json
 rbacviz risk --snapshot examples/clusters/partial-collection.json
 rbacviz tui --snapshot examples/clusters/token-minter.json
+rbacviz report --snapshot examples/clusters/token-minter.json \
+  --baseline examples/baseline-development.yaml
 ```
 
 The examples demonstrate analysis semantics, not exploitation. No command

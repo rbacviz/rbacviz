@@ -3,10 +3,14 @@ package tui
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/rbacviz/rbacviz/internal/baseline"
+	"github.com/rbacviz/rbacviz/internal/risk"
 )
 
 // Update handles input and asynchronous analysis progress.
@@ -26,7 +30,8 @@ func (model *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		model.data.Findings = value.value
 		return model, model.advance(stageRisk, loadRiskCmd(model.ctx, model.data))
 	case pathsLoadedMsg:
-		model.data.Paths, model.pathsLoading, model.pathsCancel = value.value, false, nil
+		model.data.Paths, model.data.Explanations = value.value, value.explanations
+		model.pathsLoading, model.pathsCancel = false, nil
 		model.items[ViewAttackPaths] = pathItems(model.data)
 		model.items[ViewWarnings] = warningItems(model.data)
 		model.dirty[ViewAttackPaths], model.dirty[ViewWarnings] = true, true
@@ -43,6 +48,18 @@ func (model *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return model, nil
 	case riskLoadedMsg:
 		model.data.Risk = value.value
+		model.data.ActiveRisk = value.value
+		if model.data.Baseline != nil {
+			evaluatedAt := model.evaluatedAt
+			if evaluatedAt.IsZero() {
+				evaluatedAt = time.Now()
+			}
+			model.data.Suppressions = baseline.Evaluate(*model.data.Baseline, model.data.Findings, value.value, evaluatedAt)
+			model.data.ActiveRisk = risk.WithoutFamilies(value.value, model.data.Suppressions.AcceptedRiskFamilyIDs())
+		}
+		return model, model.advance(stageExplanations, loadExplanationsCmd(model.ctx, model.data))
+	case explanationsLoadedMsg:
+		model.data.Explanations = value.value
 		model.finishLoading()
 		return model, nil
 	case remediationLoadedMsg:
@@ -149,6 +166,7 @@ func (model *Model) handleKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(message, model.keys.Inspect):
 		if model.width < 80 {
 			model.compactDetail = true
+			model.focus = panelInspector
 		} else {
 			model.focus = panelInspector
 		}
@@ -209,6 +227,12 @@ func (model *Model) moveSelection(delta int) {
 			} else {
 				model.inspector.ScrollDown(1)
 			}
+		case panelAccess:
+			if delta < 0 {
+				model.access.ScrollUp(1)
+			} else {
+				model.access.ScrollDown(1)
+			}
 		case panelEvidence:
 			if delta < 0 {
 				model.evidence.ScrollUp(1)
@@ -252,19 +276,25 @@ func (model *Model) pageSize() int { return maxInt(3, model.height-10) }
 
 func (model *Model) movePanel(delta int) {
 	count := 1
-	if model.width >= 80 {
-		count = 2
-	}
-	if model.width >= 120 {
+	if model.width < 80 && model.compactDetail {
+		count = 3
+	} else if model.width >= 80 {
 		count = 3
 	}
+	if model.width >= 160 {
+		count = 4
+	}
 	model.focus = panel((int(model.focus) + delta + count) % count)
-	model.status = []string{"list panel", "inspector panel", "evidence panel"}[model.focus]
+	if model.width < 80 {
+		model.compactDetail = model.focus != panelList
+	}
+	model.status = []string{"list panel", "inspector panel", "access chain panel", "evidence panel"}[model.focus]
 }
 
 func (model *Model) back() {
 	if model.compactDetail {
 		model.compactDetail = false
+		model.focus = panelList
 		return
 	}
 	if model.focus != panelList {
@@ -296,9 +326,12 @@ func (model *Model) openPaths() tea.Cmd {
 
 func (model *Model) updateViewport(message tea.Msg) (tea.Model, tea.Cmd) {
 	var command tea.Cmd
-	if model.modal == modalEvidence || model.focus == panelEvidence {
+	switch {
+	case model.modal == modalEvidence || model.focus == panelEvidence:
 		model.evidence, command = model.evidence.Update(message)
-	} else {
+	case model.focus == panelAccess:
+		model.access, command = model.access.Update(message)
+	default:
 		model.inspector, command = model.inspector.Update(message)
 	}
 	return model, command

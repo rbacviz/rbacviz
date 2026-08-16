@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/rbacviz/rbacviz/internal/attackpath"
+	"github.com/rbacviz/rbacviz/internal/permission"
 	"github.com/rbacviz/rbacviz/internal/snapshot"
 )
 
@@ -17,7 +18,6 @@ const (
 	blockingMitigationBPS     = 9000
 	potentialMitigationBPS    = 1000
 	maxPotentialMitigationBPS = 3000
-	additionalRiskRatePercent = 15
 )
 
 var factorWeights = map[FactorName]int{
@@ -44,12 +44,15 @@ func scorePath(path attackpath.Path, input snapshot.Snapshot, includePath bool) 
 	denominator := int64(weightDivisor * basisPointsDivisor * basisPointsDivisor)
 	score := clamp(roundDivide(numerator, denominator))
 	namespaces := pathNamespaces(path, input)
+	family := pathFamily(path)
 	result := PathScore{
 		ID: stableID("risk", ModelVersion+"\x00"+path.ID), PathID: path.ID, TemplateID: path.TemplateID,
 		Title: path.Title, Source: path.Source, Target: path.Target, Confidence: path.Confidence,
 		Blocked: path.Blocked, Namespaces: namespaces, Factors: factors, ScopeFactorBPS: scopeBPS,
 		Mitigation: mitigation, Score: score, Severity: severity(score),
-		RiskUnit: riskUnit(path),
+		RiskUnit: riskUnit(path), RiskFamilyID: stableID("family", family.key),
+		RootCauseKey: family.key, RootCause: family.description,
+		GrantIDs: family.grantIDs, BindingRef: family.binding, RoleRef: family.role,
 		Formula: Formula{
 			Expression:    "round(weightedTotal/100 * scopeBPS/10000 * (1-mitigationBPS/10000))",
 			WeightedTotal: weightedTotal, WeightDivisor: weightDivisor, ScopeFactorBasisPts: scopeBPS,
@@ -270,6 +273,65 @@ func observedNamespaces(input snapshot.Snapshot) []string {
 
 func riskUnit(path attackpath.Path) string {
 	return path.Source.String() + "\x00" + path.TemplateID + "\x00" + path.Target.Key
+}
+
+type familyOrigin struct {
+	key         string
+	description string
+	grantIDs    []string
+	binding     *snapshot.ObjectRef
+	role        *snapshot.ObjectRef
+}
+
+func pathFamily(path attackpath.Path) familyOrigin {
+	grants := make([]permission.GrantEvidence, 0, 1)
+	for _, step := range path.Steps {
+		for _, evidence := range step.Evidence {
+			if evidence.Grant != nil {
+				grants = append(grants, *evidence.Grant)
+			}
+		}
+	}
+	sort.Slice(grants, func(i, j int) bool {
+		left := refKey(grants[i].BindingRef) + "\x00" + grants[i].ID
+		right := refKey(grants[j].BindingRef) + "\x00" + grants[j].ID
+		return left < right
+	})
+	if len(grants) > 0 {
+		primary := grants[0]
+		identity := permission.Identity{Kind: primary.Subject.Kind, Namespace: primary.Subject.Namespace, Name: primary.Subject.Name}
+		binding := primary.BindingRef
+		role := primary.RoleRef
+		grantIDs := make([]string, 0, len(grants))
+		for _, grant := range grants {
+			grantIDs = append(grantIDs, grant.ID)
+		}
+		sort.Strings(grantIDs)
+		grantIDs = uniqueStrings(grantIDs)
+		key := "grant|" + refKey(binding) + "|" + identity.String()
+		return familyOrigin{
+			key: key, grantIDs: grantIDs, binding: &binding, role: &role,
+			description: fmt.Sprintf("%s receives permissions through %s %s, which references %s %s.",
+				identity.String(), binding.Kind, displayRef(binding), role.Kind, displayRef(role)),
+		}
+	}
+	key := "path|" + path.Source.String() + "|" + path.TemplateID + "|" + path.Target.Key
+	return familyOrigin{
+		key:         key,
+		description: fmt.Sprintf("%s can reach %s through technique %s.", path.Source.String(), path.Target.Type, path.TemplateID),
+		grantIDs:    []string{},
+	}
+}
+
+func refKey(value snapshot.ObjectRef) string {
+	return strings.Join([]string{value.APIGroup, value.Kind, value.Namespace, value.Name}, "|")
+}
+
+func displayRef(value snapshot.ObjectRef) string {
+	if value.Namespace == "" {
+		return value.Name
+	}
+	return value.Namespace + "/" + value.Name
 }
 
 func severity(score int) Severity {

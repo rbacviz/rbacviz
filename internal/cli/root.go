@@ -136,6 +136,7 @@ func NewRootCommand(streams IOStreams, dependencies Dependencies) *cobra.Command
 	root.AddCommand(newDiffCommand(streams, state))
 	root.AddCommand(newSimulateCommand(streams, state))
 	root.AddCommand(newRemediateCommand(streams, dependencies, state))
+	root.AddCommand(newReportCommand(streams, dependencies, state))
 	return root
 }
 

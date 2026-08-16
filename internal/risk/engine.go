@@ -63,6 +63,7 @@ func (engine *Engine) Analyze(ctx context.Context, query Query) (Result, error) 
 		}
 		return scores[i].ID < scores[j].ID
 	})
+	families := buildRiskFamilies(scores)
 	identities, namespaces, cluster := aggregateAll(scores)
 	warnings := make([]Warning, 0, len(pathResult.Warnings))
 	for _, warning := range pathResult.Warnings {
@@ -77,7 +78,7 @@ func (engine *Engine) Analyze(ctx context.Context, query Query) (Result, error) 
 	return Result{
 		SchemaVersion: ResultSchemaVersion, ModelVersion: ModelVersion,
 		Complete: pathResult.Complete, Truncated: pathResult.Truncated,
-		PathScores: scores, Identities: identities, Namespaces: namespaces,
+		PathScores: scores, RiskFamilies: families, Identities: identities, Namespaces: namespaces,
 		Cluster: cluster, Warnings: warnings,
 	}, nil
 }

@@ -2,7 +2,6 @@ package tui
 
 import (
 	"context"
-	"crypto/sha256"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -15,10 +14,50 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/rbacviz/rbacviz/internal/app"
+	"github.com/rbacviz/rbacviz/internal/attackpath"
+	"github.com/rbacviz/rbacviz/internal/baseline"
+	"github.com/rbacviz/rbacviz/internal/explain"
 	graphmodel "github.com/rbacviz/rbacviz/internal/graph"
+	"github.com/rbacviz/rbacviz/internal/permission"
 	"github.com/rbacviz/rbacviz/internal/risk"
 	"github.com/rbacviz/rbacviz/internal/snapshot"
 )
+
+func TestLoadingPipelineShowsAcceptedSignalsButUsesActiveRisk(t *testing.T) {
+	value := loadTestSnapshot(t)
+	policy := baseline.Document{SchemaVersion: baseline.SchemaVersion, Profile: baseline.ProfileDevelopment, Suppressions: []baseline.Suppression{{
+		ID: "token-minter-reviewed", RootCauseKey: "grant|rbac.authorization.k8s.io|RoleBinding|production|token-minter|user:alice", Subject: "user:alice",
+		Reason: "Required by the synthetic deployment workflow", Owner: "platform-security", Expires: "2026-10-01",
+	}}}
+	model := NewModel(Options{Context: context.Background(), NoColor: true, Baseline: &policy,
+		EvaluatedAt: time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC),
+		Load:        func(context.Context) (snapshot.Snapshot, error) { return value, nil }})
+	t.Cleanup(model.Close)
+	message := loadSnapshotCmd(model.ctx, model.load)()
+	for model.loading && model.err == nil {
+		_, command := model.Update(message)
+		if command == nil {
+			break
+		}
+		message = command()
+	}
+	if model.err != nil {
+		t.Fatal(model.err)
+	}
+	if len(model.data.Suppressions.Accepted) != 1 || model.data.Risk.Cluster.Score == 0 || model.data.ActiveRisk.Cluster.Score != 0 {
+		t.Fatalf("baseline posture split missing: raw=%+v active=%+v suppressions=%+v", model.data.Risk.Cluster, model.data.ActiveRisk.Cluster, model.data.Suppressions)
+	}
+	found := false
+	for _, item := range model.items[ViewFindings] {
+		if strings.Contains(item.Subtitle, "ACCEPTED") && strings.Contains(item.Detail, "remains visible") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("accepted finding was hidden or unlabeled: %+v", model.items[ViewFindings])
+	}
+}
 
 func TestLoadingPipelineUsesSharedAnalyzers(t *testing.T) {
 	value := loadTestSnapshot(t)
@@ -39,7 +78,7 @@ func TestLoadingPipelineUsesSharedAnalyzers(t *testing.T) {
 	if model.loading || model.stage != stageReady {
 		t.Fatalf("stage = %v, loading = %t", model.stage, model.loading)
 	}
-	if len(model.data.Findings.Findings) == 0 || len(model.data.Risk.PathScores) == 0 || model.data.Graph.Nodes == 0 {
+	if len(model.data.Findings.Findings) == 0 || len(model.data.Risk.PathScores) == 0 || model.data.Graph.Nodes == 0 || len(model.data.Explanations.Explanations) == 0 {
 		t.Fatalf("shared analysis results are missing: %+v", model.data)
 	}
 	if model.data.Paths.SchemaVersion != "" {
@@ -138,29 +177,81 @@ func TestLargeListRendersOnlyVisibleWindow(t *testing.T) {
 	}
 }
 
-func TestGoldenFramesAtRepresentativeSizes(t *testing.T) {
+func TestResponsiveAccessChainLayoutsAtRepresentativeSizes(t *testing.T) {
 	tests := []struct {
 		width, height int
-		want          string
+		prepare       func(*Model)
+		want          []string
+		absent        []string
 	}{
-		{width: 72, height: 24, want: "0c49d058519adbae4457924c5ad732764559a3085104d5380155c0b072604066"},
-		{width: 100, height: 30, want: "5a5f91b251be463723cb400f41537d198a0d9c70e63634612e39b0d5936f6dc8"},
-		{width: 140, height: 34, want: "b55bfaca6caf72be24bf8385453d7038464b39843475b6d2596f95c425d0d94b"},
+		{width: 70, height: 24, prepare: func(model *Model) { model.focus, model.compactDetail = panelAccess, true }, want: []string{"Access Chain · Esc back", "BOUND_BY", "ANALYSIS"}, absent: []string{"Evidence"}},
+		{width: 100, height: 30, prepare: func(model *Model) { model.focus = panelAccess }, want: []string{"Findings", "Access Chain", "BOUND_BY", "ANALYSIS"}, absent: []string{"Evidence"}},
+		{width: 130, height: 34, want: []string{"Findings", "Inspector", "Access Chain", "BOUND_BY", "ANALYSIS"}, absent: []string{"Evidence"}},
+		{width: 170, height: 36, want: []string{"Findings", "Inspector", "Access Chain", "Evidence", "BOUND_BY", "ANALYSIS"}},
 	}
 	for _, test := range tests {
 		t.Run(fmt.Sprintf("%dx%d", test.width, test.height), func(t *testing.T) {
 			model := readyTestModel(t, test.width, test.height)
+			model.setView(indexOfView(ViewFindings))
+			if test.prepare != nil {
+				test.prepare(model)
+				model.syncViewports()
+			}
 			frame := ansi.Strip(model.View())
 			for index, line := range strings.Split(frame, "\n") {
 				if width := lipgloss.Width(line); width > test.width {
 					t.Fatalf("line %d width = %d, terminal width = %d\n%s", index+1, width, test.width, line)
 				}
 			}
-			got := fmt.Sprintf("%x", sha256.Sum256([]byte(frame)))
-			if got != test.want {
-				t.Fatalf("render digest = %s, want %s\n--- frame ---\n%s", got, test.want, frame)
+			for _, wanted := range test.want {
+				if !strings.Contains(frame, wanted) {
+					t.Fatalf("frame lacks %q:\n%s", wanted, frame)
+				}
+			}
+			for _, absent := range test.absent {
+				if strings.Contains(frame, absent) {
+					t.Fatalf("frame unexpectedly contains %q:\n%s", absent, frame)
+				}
+			}
+			if second := ansi.Strip(model.View()); second != frame {
+				t.Fatal("rendering the same state is not deterministic")
 			}
 		})
+	}
+}
+
+func TestResizeKeepsAccessDetailVisibleWhenEvidenceColumnDisappears(t *testing.T) {
+	model := readyTestModel(t, 170, 36)
+	model.setView(indexOfView(ViewFindings))
+	model.focus = panelEvidence
+	_, _ = model.Update(tea.WindowSizeMsg{Width: 130, Height: 34})
+	if model.focus != panelAccess || model.compactDetail {
+		t.Fatalf("130-column focus = %d compact = %t, want Access Chain in multi-panel mode", model.focus, model.compactDetail)
+	}
+	_, _ = model.Update(tea.WindowSizeMsg{Width: 70, Height: 24})
+	if model.focus != panelAccess || !model.compactDetail {
+		t.Fatalf("70-column focus = %d compact = %t, want Access Chain in compact detail mode", model.focus, model.compactDetail)
+	}
+	if frame := ansi.Strip(model.View()); !strings.Contains(frame, "Access Chain · Esc back") {
+		t.Fatalf("compact access chain is not visible:\n%s", frame)
+	}
+}
+
+func TestPermissionGrantCountIsScopedToSelectedCapability(t *testing.T) {
+	selected := permission.Capability{Verb: "delete", Resource: "secrets", Scope: permission.ScopeNamespaced, Namespace: "prod"}
+	values := []explain.AccessExplanation{
+		{Capabilities: []explain.CapabilitySummary{
+			{Verb: "delete", Resource: "secrets", Scope: permission.ScopeNamespaced, Namespace: "prod", GrantIDs: []string{"grant-delete-a"}},
+			{Verb: "get", Resource: "pods", Scope: permission.ScopeNamespaced, Namespace: "prod", GrantIDs: []string{"grant-pods-a"}},
+		}},
+		{Capabilities: []explain.CapabilitySummary{{Verb: "delete", Resource: "secrets", Scope: permission.ScopeNamespaced, Namespace: "prod", GrantIDs: []string{"grant-delete-b"}}}},
+	}
+	if got := explanationGrantCount(values, selected); got != 2 {
+		t.Fatalf("grant count = %d, want 2", got)
+	}
+	evidence := explanationEvidence(values, selected)
+	if strings.Contains(evidence, "grant-pods-a") || !strings.Contains(evidence, "grant-delete-a") || !strings.Contains(evidence, "grant-delete-b") {
+		t.Fatalf("evidence was not scoped to delete secrets:\n%s", evidence)
 	}
 }
 
@@ -170,7 +261,7 @@ func TestRenderSnapshotUsesRealAnalysis(t *testing.T) {
 		t.Fatal(err)
 	}
 	plain := ansi.Strip(frame)
-	if !strings.Contains(plain, "RBACVIZ") || !strings.Contains(plain, "RISK 77 HIGH") || !strings.Contains(plain, "ServiceAccount token") {
+	if !strings.Contains(plain, "RBACVIZ") || !strings.Contains(plain, "RISK INDEX 77 HIGH") || !strings.Contains(plain, "ServiceAccount token") {
 		t.Fatalf("unexpected release frame:\n%s", plain)
 	}
 }
@@ -209,7 +300,12 @@ func buildTestDataset(t *testing.T) Dataset {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return Dataset{Snapshot: value, Graph: graphAnalyzer.Stats(), Nodes: graphAnalyzer.Select(graphmodel.Selector{}), Findings: findings, Risk: risks}
+	nodes := graphAnalyzer.Select(graphmodel.Selector{})
+	explanations, err := explain.Build(ctx, value, nodes, findings, attackpath.Result{}, risks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return Dataset{Snapshot: value, Graph: graphAnalyzer.Stats(), Nodes: nodes, Findings: findings, Risk: risks, Explanations: explanations}
 }
 
 func loadTestSnapshot(t *testing.T) snapshot.Snapshot {

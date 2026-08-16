@@ -89,6 +89,8 @@ Forbidden dependency examples:
 | `internal/risk` | deterministic factor scoring and explanations | hidden heuristics |
 | `internal/remediation` | virtual candidates, impact, ranking | cluster mutation |
 | `internal/simulate` | bounded manifest parsing, snapshot overlay, what-if comparison | applying manifests or live fallback |
+| `internal/baseline` | strict reviewed exceptions, expiry, exact signal matching | deleting findings or changing raw path scores |
+| `internal/report` | root-cause correlation, priority, versioned Markdown/JSON document model | new security findings or unmeasured fixes |
 | `internal/renderer` | text, JSON, SARIF, Markdown | analysis decisions |
 | `internal/tui` | interactive presentation and navigation | collection internals |
 | `pkg/api` | intentionally supported external result/schema types | unstable internals |

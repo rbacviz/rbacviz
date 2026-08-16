@@ -34,7 +34,7 @@ esac
 case "$requested_version" in
 	latest) release_path="latest/download" ;;
 	v[0-9]*.[0-9]*.[0-9]*) release_path="download/$requested_version" ;;
-	*) fail "RBACVIZ_VERSION must be 'latest' or a tag such as v0.1.0" ;;
+	*) fail "RBACVIZ_VERSION must be 'latest' or a tag such as v0.2.0" ;;
 esac
 
 release_url="https://github.com/${repository}/releases/${release_path}"
@@ -94,4 +94,3 @@ case ":${PATH}:" in
 	*":${install_dir}:"*) ;;
 	*) printf 'Add %s to PATH, then run: rbacviz version\n' "$install_dir" ;;
 esac
-

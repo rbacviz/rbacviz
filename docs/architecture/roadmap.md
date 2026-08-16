@@ -283,6 +283,119 @@ Delivered in the Milestone 11 implementation:
   checksum verification, provenance attestation, and tag-gated publication;
 - expanded security policy and documented consumer verification process.
 
+### Milestone 12 — v0.2 root-cause reporting (implemented)
+
+- correlate raw findings and attack paths by exact binding/subject grant or
+  security-relevant object without discarding original evidence;
+- separate impact severity, categorical confidence, actionability, remediation
+  priority, and the posture-oriented Risk Index;
+- attach only remediation candidates that were virtually applied and measured;
+- generate Markdown and versioned JSON from one deterministic report model;
+- write reports atomically with owner-only permissions and no ANSI decoration.
+
+Acceptance: one observed root cause is not presented as dozens of independent
+problems; every reported fix includes measured before/after impact and
+verification guidance; absence of a safe measured candidate is explicit; the
+report remains snapshot-driven and has no cluster mutation path.
+
+### Milestone 13 — v0.2 access explanations (implemented)
+
+- build a versioned `AccessExplanation` model from effective permissions and
+  exact grant provenance;
+- group capabilities under binding/subject root causes while preserving every
+  independent grant, finding ID, rule ID, and path ID;
+- render workload → identity → binding → role → permission trees with correct
+  RoleBinding versus ClusterRoleBinding effective scope;
+- attach priority, status, severity, confidence, impact, evidence-backed
+  recommendations, and verification commands;
+- share the same model and no-color tree renderer between TUI and reports;
+- add a responsive Access Chain panel at 70/100/130/170-column test widths;
+- retain staged cancellation and rebuild exact correlations after lazy path
+  materialization.
+
+Acceptance: a user can select an identity, ServiceAccount, role, permission,
+finding, or attack path and see how access was granted, why it matters, and
+what to verify. Multiple grants remain separate, report output uses the same
+chain, and no analysis or rendering path can mutate the cluster.
+
+The next v0.2 item after Milestones 12–13 was root-cause-family Risk Index
+calibration, delivered below as Milestone 14.
+
+### Milestone 14 — v0.2 root-cause Risk Index (implemented)
+
+- retain calibrated, evidence-backed path scores and their complete formula;
+- group derivative paths by exact binding/subject root cause;
+- keep redundant equivalent grants visible without counting the same semantic
+  outcome set twice;
+- aggregate one primary family plus at most five ranked diversity contributors
+  at `5/3/2/1/1%`, capped at `+12`;
+- expose root-cause families and exact contribution arithmetic in JSON, CLI,
+  TUI, and reports;
+- label the score as a posture index rather than breach probability;
+- calibrate broad grants, redundant grants, independent families, bounds,
+  determinism, and remediation compatibility in tests.
+
+Acceptance: one broad binding cannot inflate its aggregate through derivative
+paths, a redundant equivalent binding adds no score, independent root causes
+have small bounded influence, and every displayed aggregate can be recomputed
+from its versioned JSON contribution breakdown.
+
+### Milestone 15 — v0.2 reviewed baselines and suppressions (implemented)
+
+- load a strict versioned YAML/JSON baseline with `production`, `development`,
+  or `demo` profile metadata;
+- require unique ID, reason, owner, and expiry for every exception;
+- reject unknown fields, invalid identities/bindings, and wildcard selectors;
+- correlate exact rule/subject/binding selectors with root-cause risk families;
+- keep accepted findings, paths, access chains, and evidence visible;
+- exclude only non-expired accepted families from the active Risk Index;
+- surface expired and unmatched entries as warnings instead of applying them;
+- render auditable accepted/expired/unmatched sections in Markdown and JSON;
+- share the same raw-risk/active-risk split with the TUI.
+
+Acceptance: a baseline cannot silently hide a signal or broaden through a
+wildcard; accepted risk remains auditable, expiry is fail-safe, stale entries
+are visible, and the active score can be recomputed without mutating raw
+analysis results.
+
+### Milestone 16 — v0.2 root-cause SARIF (implemented)
+
+- render SARIF 2.1.0 directly from the stable `report.Result` contract;
+- emit one result per root cause with deterministic primary rule selection;
+- preserve every correlated rule, finding, path, risk family, Access Chain,
+  evidence item, and measured remediation candidate in result properties;
+- identify bindings with Kubernetes artifact URIs and identities with logical
+  locations;
+- provide stable issue and root-cause partial fingerprints for CI correlation;
+- map complete accepted root causes to standard external/accepted suppressions;
+- keep partially accepted grouped issues active and expose their review only as
+  audit metadata;
+- expose incomplete analysis, expired exceptions, and stale baseline entries as
+  SARIF tool notifications;
+- validate emitted documents against the official OASIS SARIF 2.1.0 Errata 01
+  JSON schema.
+
+Acceptance: CI sees the same root causes and prioritization as Markdown/JSON;
+accepted risk remains visible; a narrow suppression cannot hide a broader
+issue; fingerprints are stable; and the exporter contains no analysis, cluster
+client, or mutation path.
+
+### Milestone 17 — v0.2 release preparation (implemented)
+
+- publish a `v0.2.0` changelog covering root-cause reports, Access Chains, Risk
+  Index 2.0.0, reviewed baselines, and SARIF;
+- update user, security, installer, and release documentation to `v0.2.0`;
+- pin the release and CI workflows to patched Go 1.25.13;
+- include the changelog in every deterministic platform archive;
+- pass formatting, race, vet, lint, vulnerability, installer, cross-platform
+  build, generated-assets, SARIF schema, checksum, SBOM, manifest, and
+  byte-reproducibility gates.
+
+Acceptance: the source tree can produce a self-identifying `v0.2.0` binary and
+five byte-reproducible platform archives with checksums, changelog, SBOM, and
+manifest. Publishing still requires a real clean Git commit and signed/verified
+`v0.2.0` tag; synthetic local release metadata is never a publishable artifact.
+
 ## Technical risks and controls
 
 | Risk | Consequence | Control |

@@ -51,9 +51,9 @@ func TestSaveLoadAndSemanticDigest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Windows FileMode permission bits do not represent NTFS ACLs.
 	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 		t.Fatalf("mode = %o, want 600", info.Mode().Perm())
-
 	}
 	loaded, err := snapshot.Load(path)
 	if err != nil {

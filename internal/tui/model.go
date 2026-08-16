@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -12,6 +13,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/rbacviz/rbacviz/internal/app"
+	"github.com/rbacviz/rbacviz/internal/attackpath"
+	"github.com/rbacviz/rbacviz/internal/explain"
 	graphmodel "github.com/rbacviz/rbacviz/internal/graph"
 	"github.com/rbacviz/rbacviz/internal/risk"
 	"github.com/rbacviz/rbacviz/internal/snapshot"
@@ -19,11 +22,12 @@ import (
 
 // Model owns presentation state only; security conclusions remain in app results.
 type Model struct {
-	ctx    context.Context
-	cancel context.CancelFunc
-	load   SnapshotLoader
-	keys   KeyMap
-	styles styles
+	ctx         context.Context
+	cancel      context.CancelFunc
+	load        SnapshotLoader
+	keys        KeyMap
+	styles      styles
+	evaluatedAt time.Time
 
 	stage              stage
 	loading            bool
@@ -54,6 +58,7 @@ type Model struct {
 	spinner   spinner.Model
 	searchBox textinput.Model
 	inspector viewport.Model
+	access    viewport.Model
 	evidence  viewport.Model
 }
 
@@ -78,11 +83,12 @@ func NewModel(options Options) *Model {
 	return &Model{
 		ctx: ctx, cancel: cancel, load: options.Load, keys: keys,
 		styles: newStyles(options.NoColor), stage: stageSnapshot, loading: true,
+		data: Dataset{Baseline: options.Baseline}, evaluatedAt: options.EvaluatedAt,
 		items: make(map[View][]item), visible: make(map[View][]item), dirty: make(map[View]bool), cursor: make(map[View]int),
 		offset: make(map[View]int), search: make(map[View]string),
 		filter: make(map[View]int), sort: make(map[View]int),
 		spinner: spin, searchBox: input,
-		inspector: viewport.New(1, 1), evidence: viewport.New(1, 1),
+		inspector: viewport.New(1, 1), access: viewport.New(1, 1), evidence: viewport.New(1, 1),
 	}
 }
 
@@ -112,7 +118,12 @@ func RenderSnapshot(ctx context.Context, value snapshot.Snapshot, width, height 
 	}
 	model := NewModel(Options{Context: ctx, NoColor: true})
 	defer model.Close()
-	model.data = Dataset{Snapshot: value, Graph: graphAnalyzer.Stats(), Nodes: graphAnalyzer.Select(graphmodel.Selector{}), Findings: findings, Risk: risks}
+	nodes := graphAnalyzer.Select(graphmodel.Selector{})
+	explanations, err := explain.Build(ctx, value, nodes, findings, attackpath.Result{}, risks)
+	if err != nil {
+		return "", err
+	}
+	model.data = Dataset{Snapshot: value, Graph: graphAnalyzer.Stats(), Nodes: nodes, Findings: findings, Risk: risks, ActiveRisk: risks, Explanations: explanations}
 	model.finishLoading()
 	_, _ = model.Update(tea.WindowSizeMsg{Width: width, Height: height})
 	for index, candidate := range views {
@@ -212,9 +223,19 @@ func (model *Model) fail(err error) {
 }
 
 func (model *Model) resize() {
+	if model.width < 160 && model.focus == panelEvidence {
+		model.focus = panelAccess
+	}
+	if model.width < 80 {
+		model.compactDetail = model.focus != panelList
+	} else {
+		model.compactDetail = false
+	}
 	contentHeight := maxInt(3, model.height-7)
 	model.inspector.Width = maxInt(12, inspectorWidth(model.width)-4)
 	model.inspector.Height = contentHeight - 2
+	model.access.Width = maxInt(12, accessWidth(model.width)-4)
+	model.access.Height = contentHeight - 2
 	model.evidence.Width = maxInt(12, evidenceWidth(model.width)-4)
 	model.evidence.Height = contentHeight - 2
 	model.searchBox.Width = maxInt(12, minInt(60, model.width-10))
@@ -225,15 +246,20 @@ func (model *Model) syncViewports() {
 	selected, ok := model.selected()
 	if !ok {
 		model.inspector.SetContent("No matching items.")
+		model.access.SetContent("No access chain available.")
 		model.evidence.SetContent("No evidence available.")
 		return
 	}
 	model.inspector.SetContent(wrapText(selected.Detail, maxInt(12, model.inspector.Width)))
+	model.access.SetContent(wrapText(accessContent(model.data.Explanations.Lookup(selected.ID)), maxInt(12, model.access.Width)))
 	evidence := selected.Evidence
 	if strings.TrimSpace(evidence) == "" {
 		evidence = "No additional evidence for this item."
 	}
 	model.evidence.SetContent(wrapText(evidence, maxInt(12, model.evidence.Width)))
+	model.inspector.GotoTop()
+	model.access.GotoTop()
+	model.evidence.GotoTop()
 }
 
 func (model *Model) setView(index int) {

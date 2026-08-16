@@ -3,9 +3,12 @@ package tui
 
 import (
 	"context"
+	"time"
 
 	"github.com/rbacviz/rbacviz/internal/analysis"
 	"github.com/rbacviz/rbacviz/internal/attackpath"
+	"github.com/rbacviz/rbacviz/internal/baseline"
+	"github.com/rbacviz/rbacviz/internal/explain"
 	graphmodel "github.com/rbacviz/rbacviz/internal/graph"
 	"github.com/rbacviz/rbacviz/internal/remediation"
 	"github.com/rbacviz/rbacviz/internal/risk"
@@ -17,21 +20,27 @@ type SnapshotLoader func(context.Context) (snapshot.Snapshot, error)
 
 // Dataset is the immutable result bundle shared with every screen.
 type Dataset struct {
-	Snapshot    snapshot.Snapshot
-	Graph       graphmodel.Stats
-	Nodes       []graphmodel.Node
-	Findings    analysis.Result
-	Paths       attackpath.Result
-	Risk        risk.Result
-	Remediation remediation.Result
+	Snapshot     snapshot.Snapshot
+	Graph        graphmodel.Stats
+	Nodes        []graphmodel.Node
+	Findings     analysis.Result
+	Paths        attackpath.Result
+	Risk         risk.Result
+	ActiveRisk   risk.Result
+	Baseline     *baseline.Document
+	Suppressions baseline.Evaluation
+	Explanations explain.Result
+	Remediation  remediation.Result
 }
 
 // Options configures one independent TUI program.
 type Options struct {
-	Context context.Context
-	Load    SnapshotLoader
-	KeyMap  KeyMap
-	NoColor bool
+	Context     context.Context
+	Load        SnapshotLoader
+	KeyMap      KeyMap
+	NoColor     bool
+	Baseline    *baseline.Document
+	EvaluatedAt time.Time
 }
 
 type stage uint8
@@ -42,6 +51,7 @@ const (
 	stageFindings
 	stagePaths
 	stageRisk
+	stageExplanations
 	stageReady
 )
 
@@ -57,6 +67,8 @@ func (value stage) String() string {
 		return "ranking attack paths"
 	case stageRisk:
 		return "calculating risk"
+	case stageExplanations:
+		return "explaining effective access"
 	default:
 		return "ready"
 	}
@@ -148,6 +160,7 @@ type panel int
 const (
 	panelList panel = iota
 	panelInspector
+	panelAccess
 	panelEvidence
 )
 
@@ -157,9 +170,13 @@ type graphLoadedMsg struct {
 	nodes []graphmodel.Node
 }
 type findingsLoadedMsg struct{ value analysis.Result }
-type pathsLoadedMsg struct{ value attackpath.Result }
+type pathsLoadedMsg struct {
+	value        attackpath.Result
+	explanations explain.Result
+}
 type pathLoadErrorMsg struct{ err error }
 type riskLoadedMsg struct{ value risk.Result }
+type explanationsLoadedMsg struct{ value explain.Result }
 type remediationLoadedMsg struct{ value remediation.Result }
 type remediationLoadErrorMsg struct{ err error }
 type loadErrorMsg struct{ err error }

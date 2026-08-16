@@ -14,7 +14,7 @@ import (
 
 func main() {
 	var version, commit, epochValue, output, goBinary string
-	flag.StringVar(&version, "version", "", "semantic release version, for example v0.1.0")
+	flag.StringVar(&version, "version", "", "semantic release version, for example v0.2.0")
 	flag.StringVar(&commit, "commit", "", "source commit identifier")
 	flag.StringVar(&epochValue, "source-date-epoch", os.Getenv("SOURCE_DATE_EPOCH"), "reproducible Unix build timestamp")
 	flag.StringVar(&output, "output", "dist/release", "empty release output directory")
